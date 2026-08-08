@@ -1,0 +1,11 @@
+node_modules
+.next
+backend
+.next
+*.db
+*.db-journal
+*.bak
+docs
+PROJECT_PHOENIX_*.md
+WhatsApp Image*.jpeg
+Home - Shortcut.lnk
