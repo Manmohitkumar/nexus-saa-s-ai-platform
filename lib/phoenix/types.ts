@@ -1685,3 +1685,14 @@ export interface TaskExportView {
     content: string;
     createdAt: string;
 }
+
+export interface ProjectExportView {
+    id: string;
+    project: string;
+    format: "markdown" | "csv" | "html" | "json";
+    exportedBy: string;
+    taskCount: number;
+    content: string;
+    summary: string;
+    createdAt: string;
+}

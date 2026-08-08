@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaskChecklistService } from './task-checklist.service';
-import { TaskDetailView } from './task.types';
+import { AgentTaskView, TaskDetailView } from './task.types';
 
-export type ExportFormat = 'markdown' | 'csv' | 'html';
+export type ExportFormat = 'markdown' | 'csv' | 'html' | 'json';
 
 export interface ExportResult {
     id: string;
@@ -11,6 +11,17 @@ export interface ExportResult {
     format: ExportFormat;
     taskVersion: number;
     exportedBy: string;
+    content: string;
+    summary: string;
+    createdAt: string;
+}
+
+export interface ProjectExportResult {
+    id: string;
+    project: string;
+    format: ExportFormat;
+    exportedBy: string;
+    taskCount: number;
     content: string;
     summary: string;
     createdAt: string;
@@ -64,6 +75,66 @@ export class TaskExportService {
         };
     }
 
+    /**
+     * Project-specific report export. Aggregates every task belonging to a
+     * project into a single self-contained Markdown/CSV/HTML report and persists
+     * the generated artifact as an AgentProjectExport row (traceability for who
+     * exported which project report when, in which format).
+     */
+    async exportProject(project: string, tasks: AgentTaskView[], format: ExportFormat, exportedBy = 'system'): Promise<ProjectExportResult> {
+        const content =
+            format === 'markdown'
+                ? this.projectToMarkdown(project, tasks)
+                : format === 'csv'
+                  ? this.projectToCsv(project, tasks)
+                  : format === 'json'
+                    ? JSON.stringify({ project, exportedAt: new Date().toISOString(), tasks }, null, 2)
+                    : this.projectToHtml(project, tasks);
+        const summary = this.projectSummaryFor(project, tasks);
+        const row = await this.prisma.agentProjectExport.create({
+            data: { project, format, exportedBy, content, summary },
+        });
+        return {
+            id: row.id,
+            project,
+            format,
+            exportedBy,
+            taskCount: tasks.length,
+            content: row.content,
+            summary: row.summary,
+            createdAt: row.createdAt.toISOString(),
+        };
+    }
+
+    async listProjectExports(project: string): Promise<ProjectExportResult[]> {
+        const rows = await this.prisma.agentProjectExport.findMany({ where: { project }, orderBy: { createdAt: 'desc' } });
+        return rows.map((r) => ({
+            id: r.id,
+            project: r.project,
+            format: r.format as ExportFormat,
+            exportedBy: r.exportedBy,
+            taskCount: JSON.parse(r.summary || '{"tasks":0}').tasks ?? 0,
+            content: r.content,
+            summary: r.summary,
+            createdAt: r.createdAt.toISOString(),
+        }));
+    }
+
+    async projectExportDetail(id: string): Promise<ProjectExportResult | null> {
+        const r = await this.prisma.agentProjectExport.findUnique({ where: { id } });
+        if (!r) return null;
+        return {
+            id: r.id,
+            project: r.project,
+            format: r.format as ExportFormat,
+            exportedBy: r.exportedBy,
+            taskCount: JSON.parse(r.summary || '{"tasks":0}').tasks ?? 0,
+            content: r.content,
+            summary: r.summary,
+            createdAt: r.createdAt.toISOString(),
+        };
+    }
+
     async list(taskId: string): Promise<ExportResult[]> {
         const rows = await this.prisma.agentTaskExport.findMany({ where: { taskId }, orderBy: { createdAt: 'desc' } });
         return rows.map((r) => ({
@@ -95,6 +166,130 @@ export class TaskExportService {
 
     private summaryFor(task: TaskDetailView): string {
         return `${task.title} [${task.feature}] — ${task.readiness} (${task.indicators.requiredPercentage}% required checklist, ${task.indicators.missingSourceCount} missing sources, ${task.indicators.blockedDependencyCount} blocked deps)`;
+    }
+
+    private projectSummaryFor(project: string, tasks: AgentTaskView[]): string {
+        const ready = tasks.filter((t) => t.readiness === 'ready' || t.readiness === 'complete').length;
+        const blocked = tasks.filter((t) => t.readiness === 'blocked' || t.readiness === 'failed').length;
+        const missing = tasks.reduce((n, t) => n + (t.indicators.missingSourceCount > 0 ? 1 : 0), 0);
+        return JSON.stringify({ project, tasks: tasks.length, ready, blocked, missing });
+    }
+
+    // ------------------------------------------------------------------
+    // Project-specific report renderers
+    // ------------------------------------------------------------------
+
+    private projectToMarkdown(project: string, tasks: AgentTaskView[]): string {
+        const lines: string[] = [
+            `# Agent Task Report — ${project}`,
+            ``,
+            `> Project-specific task intelligence report aggregating **${tasks.length}** agent task(s) across the ACE features.`,
+            ``,
+            `**Generated:** ${new Date().toISOString()} · **Tasks:** ${tasks.length}`,
+            ``,
+            `## Task Summary`,
+            `| Task | Feature | Status | Readiness | Required | Missing | Agent |`,
+            `| --- | --- | --- | --- | --- | --- | --- |`,
+            ...tasks.map(
+                (t, i) =>
+                    `| ${i + 1}. ${t.title.replace(/\|/g, '\\|')} | ${t.feature} | ${t.status} | ${t.readiness} | ${t.indicators.requiredComplete}/${t.indicators.requiredTotal} | ${t.indicators.missingSourceCount} | ${t.responsibleAgent} |`,
+            ),
+            ``,
+            `## Task Breakdown`,
+            ...(tasks.length
+                ? tasks.map((t) => this.projectTaskSectionMarkdown(t)).join('\n\n')
+                : `_No agent tasks recorded for this project._`),
+            ``,
+            `---`,
+            `_Exported from Project Phoenix — Agent Task Intelligence Layer. All evidence references existing Organizational Brain, Decision Time Machine, Workforce, Risk, Mentor, Documentation, Intelligence, and Executive outputs._`,
+        ];
+        return lines.join('\n');
+    }
+
+    private projectTaskSectionMarkdown(t: AgentTaskView): string {
+        const sections = t.generatedSections.length
+            ? t.generatedSections.map((s) => `### ${s.heading}\n${s.body}`).join('\n\n')
+            : `_No generated sections yet._`;
+        return [
+            `### ${t.title}`,
+            `${t.description || '_No description provided._'}`,
+            ``,
+            `**Status:** ${t.status} · **Readiness:** ${t.readiness} · **Priority:** ${t.priority} · **Owner:** ${t.owner || '—'} · **Team:** ${t.team || '—'}`,
+            ``,
+            `**Completion:** ${t.indicators.requiredComplete}/${t.indicators.requiredTotal} required (${t.indicators.requiredPercentage}%) · Missing sources: **${t.indicators.missingSourceCount}** · Blocked deps: **${t.indicators.blockedDependencyCount}**`,
+            ``,
+            sections,
+        ].join('\n');
+    }
+
+    private projectToCsv(project: string, tasks: AgentTaskView[]): string {
+        const esc = (v: unknown): string => {
+            const s = String(v ?? '').replace(/"/g, '""');
+            return /[",\n]/.test(s) ? `"${s}"` : s;
+        };
+        const rows: unknown[][] = [];
+        rows.push(['Project Report', project, new Date().toISOString(), `${tasks.length} tasks`]);
+        rows.push([]);
+        rows.push(['Task Summary']);
+        rows.push(['Task', 'Feature', 'Status', 'Readiness', 'Required Done', 'Required Total', 'Required %', 'Optional Done', 'Optional Total', 'Missing', 'Stale', 'Blocked', 'Agent', 'Owner', 'Priority', 'Generated Sections']);
+        for (const t of tasks) {
+            rows.push([t.title, t.feature, t.status, t.readiness, t.indicators.requiredComplete, t.indicators.requiredTotal, t.indicators.requiredPercentage, t.indicators.optionalComplete, t.indicators.optionalTotal, t.indicators.missingSourceCount, t.indicators.staleSourceCount, t.indicators.blockedDependencyCount, t.responsibleAgent, t.owner, t.priority, t.generatedSections.length]);
+        }
+        return rows.map((r) => r.map(esc).join(',')).join('\n');
+    }
+
+    private projectToHtml(project: string, tasks: AgentTaskView[]): string {
+        const summaryRows = tasks
+            .map(
+                (t, i) =>
+                    `<tr><td>${i + 1}</td><td>${this.h(t.title)}</td><td>${this.h(t.feature)}</td><td><span class="state ${t.status}">${t.status}</span></td><td><span class="state ${t.readiness}">${t.readiness}</span></td><td>${t.indicators.requiredComplete}/${t.indicators.requiredTotal}</td><td>${t.indicators.missingSourceCount}</td><td>${this.h(t.responsibleAgent)}</td></tr>`,
+            )
+            .join('\n');
+        const breakdownHtml = tasks.length
+            ? tasks
+                  .map(
+                      (t) => `<section id="${this.anchor(t.title)}"><h3>${this.h(t.title)}</h3><p>${this.h(t.description) || '<em>No description provided.</em>'}</p><p class="meta"><strong>Status:</strong> ${t.status} · <strong>Readiness:</strong> ${t.readiness} · <strong>Priority:</strong> ${t.priority} · <strong>Owner:</strong> ${this.h(t.owner) || '—'} · <strong>Team:</strong> ${this.h(t.team) || '—'}</p><p class="meta">Completion: <strong>${t.indicators.requiredComplete}/${t.indicators.requiredTotal}</strong> required (${t.indicators.requiredPercentage}%) · Missing sources: <strong>${t.indicators.missingSourceCount}</strong> · Blocked deps: <strong>${t.indicators.blockedDependencyCount}</strong></p>${t.generatedSections.length ? t.generatedSections.map((s) => `<h4>${this.h(s.heading)}</h4><p>${this.h(s.body)}</p>`).join('') : '<p>No generated sections yet.</p>'}</section>`,
+                  )
+                  .join('\n')
+            : '<p>No agent tasks recorded for this project.</p>';
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Agent Task Report — ${this.h(project)}</title>
+<style>
+body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #211F20; margin: 32px auto; max-width: 900px; padding: 0 24px; line-height: 1.5; }
+h1 { border-bottom: 3px solid #2196F3; padding-bottom: 8px; }
+h2 { margin-top: 32px; color: #0D47A1; border-bottom: 1px solid #D6EAF8; padding-bottom: 4px; }
+h3 { margin-top: 24px; color: #0D47A1; }
+h4 { margin-bottom: 2px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+th, td { border: 1px solid #D6EAF8; padding: 6px 10px; text-align: left; }
+th { background: #EAF3FB; }
+.meta { font-size: 13px; color: #5F6B7A; }
+.state { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.state.ready, .state.complete, .state.awaiting_review { background: rgba(46,125,50,0.12); color: #2E7D32; }
+.state.blocked, .state.failed { background: rgba(211,47,47,0.12); color: #D32F2F; }
+.state.missing-data, .state.stale, .state.waiting { background: rgba(249,168,37,0.16); color: #B26A00; }
+.state.in_progress, .state.pending { background: rgba(33,150,243,0.14); color: #0D47A1; }
+footer { margin-top: 40px; font-size: 12px; color: #5F6B7A; border-top: 1px solid #D6EAF8; padding-top: 12px; }
+@media print { body { max-width: 100%; } }
+</style>
+</head>
+<body>
+<h1>Agent Task Report — ${this.h(project)}</h1>
+<p>Project-specific task intelligence report aggregating <strong>${tasks.length}</strong> agent task(s) across the ACE features.</p>
+<p class="meta"><strong>Generated:</strong> ${new Date().toISOString()} · <strong>Tasks:</strong> ${tasks.length}</p>
+<h2>Task Summary</h2>
+<table><thead><tr><th>#</th><th>Task</th><th>Feature</th><th>Status</th><th>Readiness</th><th>Required</th><th>Missing</th><th>Agent</th></tr></thead><tbody>
+${summaryRows}
+</tbody></table>
+<h2>Task Breakdown</h2>
+${breakdownHtml}
+<footer>Exported from Project Phoenix — Agent Task Intelligence Layer. All evidence references existing Organizational Brain, Decision Time Machine, Workforce, Risk, Mentor, Documentation, Intelligence, and Executive outputs. No new intelligence is created by this report.</footer>
+</body>
+</html>`;
     }
 
     // ------------------------------------------------------------------

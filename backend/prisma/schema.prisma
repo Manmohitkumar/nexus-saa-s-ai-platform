@@ -604,3 +604,15 @@ model AgentTaskExport {
 
   @@index([taskId])
 }
+
+model AgentProjectExport {
+  id         String   @id @default(cuid())
+  project    String
+  format     String   // markdown | csv | html | json
+  exportedBy String   @default("system")
+  content    String   @default("")
+  summary    String   @default("")
+  createdAt  DateTime @default(now())
+
+  @@index([project])
+}

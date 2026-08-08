@@ -83,6 +83,7 @@ import type {
     TaskExplorerFilters,
     TaskExplorerResponse,
     TaskExportView,
+    ProjectExportView,
     TaskGenerateResult,
     TaskOverview,
 } from "./types";
@@ -581,6 +582,18 @@ export function updateTaskStatus(id: string, status: string, actor = "system") {
 
 export function assignTask(id: string, owner: string, responsibleAgent?: string, actor = "system") {
     return apiPostBody<TaskDetailView>(`/tasks/${encodeURIComponent(id)}/assign`, { owner, responsibleAgent, actor });
+}
+
+export function fetchTaskProjects() {
+    return apiGet<Array<{ project: string; count: number }>>("/tasks/projects");
+}
+
+export function exportProjectTasks(project: string, format: "markdown" | "csv" | "html" | "json", exportedBy = "system") {
+    return apiPostBody<ProjectExportView>("/tasks/exports/project", { project, format, exportedBy });
+}
+
+export function fetchProjectExports(project: string) {
+    return apiGet<ProjectExportView[]>(`/tasks/projects/${encodeURIComponent(project)}/exports`);
 }
 
 export function fetchTaskExports(id: string) {

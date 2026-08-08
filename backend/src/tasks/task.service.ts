@@ -362,6 +362,37 @@ export class TaskService {
     }
 
     // ------------------------------------------------------------------
+    // Project-specific report export
+    // ------------------------------------------------------------------
+
+    async projects(): Promise<Array<{ project: string; count: number }>> {
+        const rows = await this.prisma.agentTask.findMany({ select: { project: true }, orderBy: { project: 'asc' } });
+        const map = new Map<string, number>();
+        for (const r of rows) map.set(r.project, (map.get(r.project) ?? 0) + 1);
+        return [...map.entries()].map(([project, count]) => ({ project, count }));
+    }
+
+    async exportProject(project: string, format: ExportFormat, exportedBy = 'system') {
+        const result = await this.explorer.search({ project });
+        const report = await this.exporter.exportProject(project, result.tasks, format, exportedBy);
+        this.eventBus.emit('task.project.exported', `project:${project}`, `Project report exported as ${format.toUpperCase()} (${report.taskCount} tasks)`, {
+            project,
+            format,
+            exportId: report.id,
+            taskCount: report.taskCount,
+        });
+        return report;
+    }
+
+    listProjectExports(project: string) {
+        return this.exporter.listProjectExports(project);
+    }
+
+    projectExportDetail(id: string) {
+        return this.exporter.projectExportDetail(id);
+    }
+
+    // ------------------------------------------------------------------
     // Overview + events
     // ------------------------------------------------------------------
 

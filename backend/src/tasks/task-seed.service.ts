@@ -3,12 +3,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TaskService } from './task.service';
 
 /**
- * Demo seed for Feature 9. Creates two illustrative tasks:
+ * Demo seed for Feature 9. Creates illustrative tasks:
  *   1. A COMPLETED cross-feature task that consumed outputs from all eight
  *      ACE features (checklist complete, sections + evidence mappings present,
  *      exported report, status complete).
  *   2. A DELIBERATELY INCOMPLETE task whose required sources are missing, so
  *      readiness lands on `blocked`/`missing-data` and generation is prevented.
+ *   3. A supporting set across a second project (Project Atlas) covering
+ *      several features/statuses/readiness states, so the explorer filters and
+ *      project-specific report export have realistic data to operate on.
  * Seeding is idempotent (skips when a task with the same title exists).
  */
 @Injectable()
@@ -37,12 +40,90 @@ export class TaskSeedService implements OnModuleInit {
         });
         if (existing > 0) {
             this.logger.log('Task demo seed already present, skipping.');
-            return;
+        } else {
+            await this.seedCompletedTask();
+            await this.seedIncompleteTask();
+            this.logger.log('Core task demo data seeded.');
         }
 
-        await this.seedCompletedTask();
-        await this.seedIncompleteTask();
-        this.logger.log('Task demo data seeded.');
+        await this.seedSupportingTasks();
+    }
+
+    private async seedSupportingTasks(): Promise<void> {
+        const supporting: Array<{
+            title: string;
+            feature: string;
+            project: string;
+            owner: string;
+            team: string;
+            priority: string;
+            description: string;
+            status: 'pending' | 'in_progress' | 'awaiting_review' | 'complete' | 'blocked';
+        }> = [
+            {
+                title: 'Migration risk review for Atlas checkout flow (seeded)',
+                feature: 'risk',
+                project: 'Project Atlas',
+                owner: 'Aarav Mehta',
+                team: 'Payments',
+                priority: 'high',
+                description: 'Assess knowledge + ownership risk around the Atlas checkout migration.',
+                status: 'in_progress',
+            },
+            {
+                title: 'Onboarding documentation for Atlas engineering (seeded)',
+                feature: 'docs',
+                project: 'Project Atlas',
+                owner: 'Sarah Chen',
+                team: 'Platform',
+                priority: 'medium',
+                description: 'Generate onboarding + runbook docs for new Atlas services.',
+                status: 'awaiting_review',
+            },
+            {
+                title: 'Atlas decision retrospective on gateway provider (seeded)',
+                feature: 'decisions',
+                project: 'Project Atlas',
+                owner: 'Open',
+                team: 'Payments',
+                priority: 'low',
+                description: 'Reconstruct the gateway provider decision timeline.',
+                status: 'pending',
+            },
+            {
+                title: 'Executive snapshot for Atlas board review (seeded)',
+                feature: 'executive',
+                project: 'Project Atlas',
+                owner: 'Priya Nair',
+                team: 'Strategy',
+                priority: 'critical',
+                description: 'Consolidate Atlas health, risk, and workforce signals into an executive brief.',
+                status: 'awaiting_review',
+            },
+        ];
+
+        for (const t of supporting) {
+            const exists = await this.prisma.agentTask.findFirst({ where: { title: t.title } });
+            if (exists) continue;
+            const task = await this.tasks.create({
+                title: t.title,
+                description: t.description,
+                feature: t.feature,
+                project: t.project,
+                owner: t.owner,
+                team: t.team,
+                priority: t.priority,
+                createdBy: 'seed',
+            });
+            // Complete the optional checklist items so the rows show a mix of
+            // required/optional progress, then set the declared status.
+            const detail = await this.tasks.detail(task.id);
+            for (const item of detail.checklist.filter((c) => !c.required).slice(0, 1)) {
+                await this.tasks.toggleChecklistItem(task.id, item.id, true, 'a13');
+            }
+            await this.tasks.updateStatus(task.id, t.status, 'a13');
+        }
+        this.logger.log('Supporting task demo data seeded.');
     }
 
     private async seedCompletedTask(): Promise<void> {

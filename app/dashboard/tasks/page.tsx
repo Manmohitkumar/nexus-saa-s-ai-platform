@@ -6,11 +6,14 @@ import {
   addTaskDependency,
   assignTask,
   createTask,
+  exportProjectTasks,
   exportTask,
+  fetchProjectExports,
   fetchTaskDetail,
   fetchTaskEvents,
   fetchTaskExports,
   fetchTaskOverview,
+  fetchTaskProjects,
   fetchTasks,
   generateTask,
   removeTaskDependency,
@@ -18,9 +21,11 @@ import {
   updateTaskStatus,
   validateTask,
 } from "@/lib/phoenix/api";
+import { projectReportToPdf } from "@/lib/phoenix/project-pdf";
 import type {
   AgentTaskView,
   BusEvent,
+  ProjectExportView,
   TaskDetailView,
   TaskExplorerFilters,
   TaskOverview,
@@ -194,6 +199,33 @@ function toLocal(s: string) {
   }
 }
 
+// Section-level search highlighting: wraps every occurrence of the free-text
+// search query in the task title/description so the match is visible at a
+// glance in the explorer results.
+function Highlight({ text, query }: { text: string; query?: string }) {
+  if (!query || !text) return <>{text}</>;
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const ql = q.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let at = lower.indexOf(ql, i);
+  let key = 0;
+  while (at !== -1) {
+    if (at > i) parts.push(text.slice(i, at));
+    parts.push(
+      <mark key={key++} className="rounded-sm" style={{ background: "#FFF59D", color: "#211F20" }}>
+        {text.slice(at, at + q.length)}
+      </mark>,
+    );
+    i = at + q.length;
+    at = lower.indexOf(ql, i);
+  }
+  if (i < text.length) parts.push(text.slice(i));
+  return <>{parts}</>;
+}
+
 // ---------------------------------------------------------------------------
 // Task Explorer (search + combined filters + reset)
 // ---------------------------------------------------------------------------
@@ -218,13 +250,17 @@ export default function TaskExplorer() {
   const [busy, setBusy] = useState<string | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [expandedActivity, setExpandedActivity] = useState(false);
+  const [projects, setProjects] = useState<Array<{ project: string; count: number }>>([]);
+  const [projectExportProject, setProjectExportProject] = useState("");
+  const [projectExports, setProjectExports] = useState<ProjectExportView[]>([]);
 
   const loadExplorer = useCallback(async (f: TaskExplorerFilters) => {
     try {
-      const [ov, res, ev] = await Promise.all([fetchTaskOverview(), fetchTasks(f), fetchTaskEvents()]);
+      const [ov, res, ev, pr] = await Promise.all([fetchTaskOverview(), fetchTasks(f), fetchTaskEvents(), fetchTaskProjects()]);
       setOverview(ov);
       setTasks(res.tasks);
       setEvents(ev);
+      setProjects(pr);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load task explorer");
@@ -388,6 +424,81 @@ export default function TaskExplorer() {
     }
   };
 
+  const handleProjectExport = async (format: "markdown" | "csv" | "html") => {
+    if (!projectExportProject) {
+      setError("Select a project to export.");
+      return;
+    }
+    setBusy(`project-${format}`);
+    try {
+      const result = await exportProjectTasks(projectExportProject, format);
+      await loadProjectExports(projectExportProject);
+      const blob = new Blob([result.content], { type: format === "html" ? "text/html" : format === "csv" ? "text/csv" : "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectExportProject.replace(/[^a-z0-9-]+/gi, "-").toLowerCase()}-report.${format === "html" ? "html" : format === "csv" ? "csv" : "md"}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Project export failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleProjectExportJson = async () => {
+    if (!projectExportProject) {
+      setError("Select a project to export.");
+      return;
+    }
+    setBusy("project-json");
+    try {
+      const result = await exportProjectTasks(projectExportProject, "json");
+      const blob = new Blob([result.content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectExportProject.replace(/[^a-z0-9-]+/gi, "-").toLowerCase()}-report.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Project export failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleProjectExportPdf = async () => {
+    if (!projectExportProject) {
+      setError("Select a project to export.");
+      return;
+    }
+    setBusy("project-pdf");
+    try {
+      const result = await exportProjectTasks(projectExportProject, "json");
+      const doc = projectReportToPdf(JSON.parse(result.content), "system");
+      doc.save(`${projectExportProject.replace(/[^a-z0-9-]+/gi, "-").toLowerCase()}-report.pdf`);
+      await loadProjectExports(projectExportProject);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "PDF export failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const loadProjectExports = useCallback(async (project: string) => {
+    try {
+      const ex = await fetchTaskProjects(); // keeps projects list fresh
+      setProjects(ex);
+      const rows = await fetchProjectExports(project);
+      setProjectExports(rows);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load project exports");
+    }
+  }, []);
+
   const selected = tasks.find((t) => t.id === selectedId);
 
   return (
@@ -543,11 +654,44 @@ export default function TaskExplorer() {
                 <option value="true">Has missing data</option>
                 <option value="false">No missing data</option>
               </select>
+              <select
+                value={filters.project ?? ""}
+                onChange={(e) => setFilter("project", e.target.value || undefined)}
+                className="rounded-lg border px-2 py-1.5 text-xs outline-none"
+                style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
+              >
+                <option value="">All projects</option>
+                {projects.map((p) => <option key={p.project} value={p.project}>{p.project} ({p.count})</option>)}
+              </select>
+              <select
+                value={filters.dependencyState ?? ""}
+                onChange={(e) => setFilter("dependencyState", e.target.value || undefined)}
+                className="rounded-lg border px-2 py-1.5 text-xs outline-none"
+                style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
+              >
+                <option value="">Any dependency state</option>
+                <option value="blocked">Has blocked dependencies</option>
+                <option value="clear">No blocked dependencies</option>
+              </select>
+              <input
+                value={filters.owner ?? ""}
+                onChange={(e) => setFilter("owner", e.target.value || undefined)}
+                placeholder="Owner..."
+                className="rounded-lg border px-2 py-1.5 text-xs outline-none"
+                style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
+              />
+              <input
+                value={filters.section ?? ""}
+                onChange={(e) => setFilter("section", e.target.value || undefined)}
+                placeholder="Section..."
+                className="rounded-lg border px-2 py-1.5 text-xs outline-none"
+                style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
+              />
               <input
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") setFilter("search", searchDraft || undefined); }}
-                placeholder="Search title, description, notes..."
+                placeholder="Search title, description, notes, sections..."
                 className="min-w-40 flex-1 rounded-lg border px-3 py-1.5 text-xs outline-none"
                 style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
               />
@@ -612,8 +756,8 @@ export default function TaskExplorer() {
                         style={{ background: selected ? "#EAF3FB" : "transparent", borderTop: "1px solid #EAF3FB" }}
                       >
                         <td className="py-3 pr-3">
-                          <p className="font-semibold" style={{ color: "#211F20" }}>{task.title}</p>
-                          <p className="mt-0.5 line-clamp-1 text-[11px]" style={{ color: "#5F6B7A" }}>{task.description || "—"}</p>
+                          <p className="font-semibold" style={{ color: "#211F20" }}><Highlight text={task.title} query={filters.search} /></p>
+                          <p className="mt-0.5 line-clamp-1 text-[11px]" style={{ color: "#5F6B7A" }}><Highlight text={task.description || "—"} query={filters.search} /></p>
                         </td>
                         <td className="py-3 pr-3"><FeatureBadge feature={task.feature} /></td>
                         <td className="py-3 pr-3"><ReadinessPill readiness={task.readiness} /></td>
@@ -639,6 +783,78 @@ export default function TaskExplorer() {
               </table>
             </div>
           )}
+        </Card>
+
+        {/* Project-specific report export */}
+        <Card>
+          <CardHeader
+            icon={FileText}
+            title="Project Report Export"
+            badge={<span className="rounded-full px-2 py-1 text-xs" style={{ background: "#EAF3FB", color: "#0D47A1" }}>project-scoped reporting</span>}
+          />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-xs font-semibold" style={{ color: "#5F6B7A" }}>Project</label>
+              <select
+                value={projectExportProject}
+                onChange={(e) => {
+                  setProjectExportProject(e.target.value);
+                  if (e.target.value) void loadProjectExports(e.target.value);
+                }}
+                className="rounded-lg border px-3 py-1.5 text-xs outline-none"
+                style={{ borderColor: "#D6EAF8", color: "#211F20", background: "#FFFFFF" }}
+              >
+                <option value="">Select a project...</option>
+                {projects.map((p) => <option key={p.project} value={p.project}>{p.project} ({p.count} tasks)</option>)}
+              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                {(["markdown", "csv", "html"] as const).map((format) => (
+                  <button
+                    key={format}
+                    onClick={() => handleProjectExport(format)}
+                    disabled={busy === `project-${format}` || !projectExportProject}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-opacity disabled:opacity-40"
+                    style={{ background: "#EAF3FB", color: "#0D47A1" }}
+                  >
+                    {busy === `project-${format}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                    Export {format}
+                  </button>
+                ))}
+                <button
+                  onClick={handleProjectExportJson}
+                  disabled={busy === "project-json" || !projectExportProject}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-opacity disabled:opacity-40"
+                  style={{ background: "#EAF3FB", color: "#0D47A1" }}
+                >
+                  {busy === "project-json" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                  Export JSON
+                </button>
+                <button
+                  onClick={handleProjectExportPdf}
+                  disabled={busy === "project-pdf" || !projectExportProject}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-opacity disabled:opacity-40"
+                  style={{ background: "#D32F2F", color: "#FFFFFF" }}
+                >
+                  {busy === "project-pdf" ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                  Export PDF
+                </button>
+              </div>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: "#EAF3FB", background: "#F8FBFF" }}>
+              <p className="text-[10px] font-semibold uppercase" style={{ color: "#90A4AE" }}>Recent project reports</p>
+              {projectExports.length === 0 ? (
+                <p className="mt-1 text-xs" style={{ color: "#5F6B7A" }}>No reports generated for this project yet. Select a project and choose a format above.</p>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {projectExports.map((ex) => (
+                    <span key={ex.id} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold" style={{ background: "#EAF3FB", color: "#0D47A1" }}>
+                      {ex.format.toUpperCase()} · {ex.taskCount} tasks · {toLocal(ex.createdAt)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </Card>
 
         {/* Task detail workspace */}

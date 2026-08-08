@@ -370,3 +370,28 @@ Unified cleanup slice that closes the last gaps across the whole platform.
 - Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
 - Frontend: full `tsconfig.frontend.json` typecheck passes with 0 errors.
 - Live smoke: all 12 routes render HTTP 200 (`/`, `/dashboard`, `/dashboard/brain`, `/dashboard/decisions`, `/dashboard/exit-sim`, `/dashboard/risk`, `/dashboard/mentor`, `/dashboard/docs`, `/dashboard/intelligence`, `/dashboard/agents`, `/dashboard/tasks`, `/dashboard/settings`); `/exit-sim/profiles` returns 3 live profiles derived from the workforce engine (top: Mike Ross, risk 62, 3 systems).
+
+## Bounty Integration — Agent Task Source Checklist / Section-Level Search & Filters / Project-Specific Report Export (Complete)
+
+Extends the existing Feature 9 Agent Task Intelligence Layer with the three connected hackathon capabilities. Nothing is a new intelligence silo: every capability reuses the live ACE feature data, the shared event bus, and the existing task persistence.
+
+### Backend
+
+- `backend/prisma/schema.prisma` - added `AgentProjectExport` model (project, format incl. `json`, exportedBy, content, summary JSON with task/ready/blocked/missing counts, createdAt, project index). `npx prisma db push` + `npx prisma generate` applied.
+- `task-export.service.ts` - project-scoped report generation: `exportProject()` aggregates all tasks of a project into a single self-contained Markdown/CSV/HTML/JSON report (task summary table + per-task breakdown with indicators + generated sections + evidence) and persists it as `AgentProjectExport`; `listProjectExports()` / `projectExportDetail()`.
+- `task-explorer.service.ts` (unchanged, already complete) - combined AND-filters for feature/status/readiness/owner/responsibleAgent/project/section/dependencyState/missingData + free-text search over title/description/notes/generatedSections.
+- `task.service.ts` - `projects()` (distinct project + task counts), `exportProject()` (emits `task.project.exported` event), `listProjectExports()`, `projectExportDetail()`.
+- `task.controller.ts` - new endpoints: `GET /tasks/projects`, `POST /tasks/exports/project`, `GET /tasks/project-exports/:exportId`, `GET /tasks/projects/:project/exports`.
+- `task-seed.service.ts` - added 4 supporting tasks in a second project (Project Atlas: risk in_progress, docs awaiting_review, decisions pending, executive awaiting_review) so explorer filters and project-specific exports have realistic multi-project data.
+
+### Frontend
+
+- `lib/phoenix/types.ts` / `lib/phoenix/api.ts` - `ProjectExportView` type + fetchers (`fetchTaskProjects`, `exportProjectTasks` incl. `json` format, `fetchProjectExports`).
+- `lib/phoenix/project-pdf.ts` - real PDF download via jsPDF: `projectReportToPdf()` renders the project's tasks (header band, summary table, per-task breakdown with indicators + generated sections) into an actual `.pdf` file client-side - no browser print dialog.
+- `app/dashboard/tasks/page.tsx` - Task Explorer now surfaces the full backend filter surface: project (with counts), dependencyState, owner, section, plus the existing feature/status/readiness/missing-data and free-text search; search results render **highlighted matches** in task title/description (`<mark>`); added a **Project Report Export** card (project picker + Markdown/CSV/HTML/JSON download + real PDF button + recent project reports list).
+
+### Verification
+
+- Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
+- Frontend: full `tsconfig.frontend.json` typecheck passes with 0 errors; `npm run build` succeeds (all 14 routes static, incl. new `jspdf` dependency).
+- Live smoke: `GET /tasks/projects` → `[{Project Atlas, 4}, {Project Phoenix, 2}]`; `POST /tasks/exports/project` returns markdown (4953 chars, 2 tasks) / csv / html / json with `taskCount` + summary JSON; `GET /tasks/projects/Project%20Atlas/exports` lists persisted reports; `GET /tasks/project-exports/:id` returns detail; `/tasks/events` includes `task.project.exported` events (one per format).

@@ -34,3 +34,5 @@ WhatsApp Image*.jpeg
 *.db
 *.db-journal
 *.bak
+
+.vercel

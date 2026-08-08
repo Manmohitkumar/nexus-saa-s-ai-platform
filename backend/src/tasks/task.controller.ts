@@ -23,6 +23,11 @@ export class TaskController {
         return this.tasks.events();
     }
 
+    @Get('projects')
+    projects() {
+        return this.tasks.projects();
+    }
+
     @Get(':id')
     detail(@Param('id') id: string) {
         return this.tasks.detail(id);
@@ -87,5 +92,21 @@ export class TaskController {
     @Get('exports/:exportId')
     exportDetail(@Param('exportId') exportId: string) {
         return this.tasks.exportDetail(exportId);
+    }
+
+    // Project-specific report export.
+    @Post('exports/project')
+    exportProject(@Body() body: { project: string; format?: ExportFormat; exportedBy?: string }) {
+        return this.tasks.exportProject(body.project, body.format ?? 'markdown', body.exportedBy ?? 'system');
+    }
+
+    @Get('project-exports/:exportId')
+    projectExportDetail(@Param('exportId') exportId: string) {
+        return this.tasks.projectExportDetail(exportId);
+    }
+
+    @Get('projects/:project/exports')
+    projectExports(@Param('project') project: string) {
+        return this.tasks.listProjectExports(project);
     }
 }
