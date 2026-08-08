@@ -158,7 +158,7 @@ Implemented as a strict consumer of Features 1-3 outputs (no duplicate analytica
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 20 tests / 15 suites passing.
-- Frontend: Feature 4 files typecheck clean (2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 4 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `/risk/health`, `/risk/nodes` (all modes), `/risk/nodes/:id`, `/risk/predictions`, `/risk/timeline`, `/risk/recommendations`, `/risk/heatmap`, `/agents/a8/run`, `/agents/run` (8 agents).
 
 ## Feature 05 - AI Mentor (Complete)
@@ -193,7 +193,7 @@ Implemented as the conversational/contextual intelligence layer of the Organizat
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 25 tests / 15 suites passing.
-- Frontend: Feature 5 files typecheck clean (same 2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 5 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `/mentor/capabilities`, `/mentor/prompts`, `/mentor/learning-paths` (contracts kept), `POST /mentor/ask` (PostgreSQL topic → capability database, confidence 88, persisted conversation), conversation continuation on the same id, invalid-id fallback to new thread, `/mentor/conversations`, `/mentor/conversations/:id` (full MentorAnswer payload), dependency capability with 8 real graph edges, `/agents` (a9 present), `/intelligence/reason` (a9 Mentor Agent present).
 - Dashboard pages render with the floating Mentor widget.
 
@@ -230,7 +230,7 @@ Implemented as the documentation publishing/evolution layer of the Organizationa
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing.
-- Frontend: Feature 6 files typecheck clean (same 2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 6 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `/docs` (30 materialized docs), `/docs/state` (legacy contract, 30), `/docs/health` (health 75), `/docs/health/timeline` (14 points), `/docs/recommendations`, `/docs/evolution` (runs grow as brain events fire), `/docs/:id/versions`, `/docs/:id/diff?from=1&to=2`, `POST /docs/:id/rollback?to=1` (creates v2), `/docs/impact/:id`, `POST /docs/evolve`, `/docs/:id/regenerate`, `/docs/workflows` + `/docs/content?name=` (legacy contracts), `/agents` (a10 present), `/intelligence/reason` (documentation topic → a10 present).
 - `http://localhost:3000/dashboard/docs` renders (200).
 
@@ -268,7 +268,7 @@ Implemented as the cognitive/orchestration layer of the Organizational Digital B
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
-- Frontend: Feature 7 files typecheck clean (same 2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 7 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `POST /intelligence/plan` (topic/intent/priority detection, step decomposition), `POST /intelligence/ask` (orchestrates agents, evidence, affected systems, insight persistence; e.g. decisions topic at 81% confidence; workforce+predictive topic detection verified), `GET /intelligence/health` (4 pillars, overall 68), `GET /intelligence/predictions` (4 cards), `GET /intelligence/recommendations` (merged, ranked), `GET /intelligence/events` (phoenix.boot auto-sweep generated 10 insights; decision.reconstructed / documentation.evolved assessed), `GET /intelligence/timeline` (persisted insights), `GET /intelligence/insight` + `/:id` (detail + trace), `POST /intelligence/sweep` (idempotent - 0 generated / 10 skipped on re-run), `GET /intelligence/architecture`, `GET /intelligence/explain/:id`, legacy `/intelligence/overview|insights|reason` still live, `/agents` (a11 present).
 - `http://localhost:3000/dashboard/intelligence` renders (200).
 
@@ -306,7 +306,7 @@ Implemented as the strategic presentation + prioritization layer of the Organiza
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
-- Frontend: Feature 8 files typecheck clean (same 2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 8 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `GET /executive/overview` (overall 68, 12 KPIs, 6 pillars, 10 highlights), `GET /executive/kpis`, `GET /executive/summary`, `GET /executive/forecast` (stability + points), `GET /executive/trends`, `GET /executive/recommendations`, `GET /executive/briefing?period=weekly`, `GET /executive/snapshots`, `GET /executive/events` (includes `executive.refreshed`, `documentation.evolved`, `intelligence.sweep`, `phoenix.boot`), `POST /executive/refresh` (persists snapshot, emits event), `POST /executive/reports/generate` (weekly Markdown report), `GET /executive/reports` + `/reports/:id`, `/agents` (a1-a12), `/intelligence/reason` (a12 present in fleet reasoning).
 - `http://localhost:3000/dashboard` renders the Executive Command Center (200).
 
@@ -345,7 +345,28 @@ Implemented as the shared integration layer that coordinates agent work across t
 ### Verification
 
 - Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
-- Frontend: Feature 9 files typecheck clean (same 2 pre-existing errors remain in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`, untouched).
+- Frontend: Feature 9 files typecheck clean (later unified fix removed the 2 pre-existing errors in `components/landing/cta-section.tsx` and `lib/phoenix/intelligence.ts`).
 - Live smoke: `POST /tasks` (executive task → 7 checklist items auto-validated, 5 dependencies ready), `POST /tasks/:id/generate` (pre-validation passed, executed via a12, 5 sections + 5 evidence mappings, status awaiting_review), checklist completion (readiness waiting→ready, required 6/6), `POST /tasks/:id/exports` (markdown 4355 chars / csv 65 rows / html 8770 chars with doctype), explorer combined filters (`feature=executive&status=awaiting_review&missingData=false` → 1; `search=briefing` → 1), `GET /tasks/events` (task.created/updated/generated/exported/dependency.updated/generation_blocked), `GET /tasks/overview` (feature chain incl. cross-feature), `/agents` (a1-a13).
 - Seeded demo: completed cross-feature task (8/8 required, 5 mapped sections via a13, 1 export, readiness complete) + blocked exit-sim task (explicit dependency on non-existent task → readiness failed → `POST /tasks/:id/generate` executed=false with "Blocked dependency: Workforce onboarding exit-plan task").
 - `http://localhost:3000/dashboard/tasks` renders the Agent Task Intelligence workspace (200).
+
+## Polish & Integration Pass (Complete)
+
+Unified cleanup slice that closes the last gaps across the whole platform.
+
+### Frontend Typecheck Repaired (previously 2 errors → clean)
+
+- `components/landing/ascii-sphere.tsx` - `AsciiSphere` now accepts the same `{ className }` prop signature as `AsciiCube` and wraps its canvas in a sized div, fixing the `Type '{ className: string }' is not assignable` error in `components/landing/cta-section.tsx:77`.
+- `lib/phoenix/intelligence.ts` - added the missing `ArchitectureWorkflow` type import, fixing the `Cannot find name 'ArchitectureWorkflow'` error at line 238.
+- Result: `npx tsc --noEmit -p tsconfig.frontend.json` now passes with **zero** errors across the entire frontend.
+
+### Settings & Navigation Integration
+
+- `components/dashboard/sidebar.tsx` - Settings footer link now shows the same active-state highlight (blue background + white text on `/dashboard/settings`) as the main nav items, including consistent hover/un-hover behavior.
+- `app/dashboard/settings/page.tsx` - updated stale operational summary count ("7 feature modules" → "9 intelligence modules") to match the live workspace surface (Overview, Org Brain, Decisions, Exit Simulation, Risk, Mentor, Docs, Intelligence, Agents, Tasks, Settings).
+
+### Verification
+
+- Backend: `npx nest build` clean; `npx jest` 35 tests / 15 suites passing (unchanged, no regressions).
+- Frontend: full `tsconfig.frontend.json` typecheck passes with 0 errors.
+- Live smoke: all 12 routes render HTTP 200 (`/`, `/dashboard`, `/dashboard/brain`, `/dashboard/decisions`, `/dashboard/exit-sim`, `/dashboard/risk`, `/dashboard/mentor`, `/dashboard/docs`, `/dashboard/intelligence`, `/dashboard/agents`, `/dashboard/tasks`, `/dashboard/settings`); `/exit-sim/profiles` returns 3 live profiles derived from the workforce engine (top: Mike Ross, risk 62, 3 systems).

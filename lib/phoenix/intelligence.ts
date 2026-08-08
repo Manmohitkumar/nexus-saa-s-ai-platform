@@ -1,4 +1,5 @@
 import {
+    ArchitectureWorkflow,
     BrainGraphView,
     DecisionTimelineEvent,
     DocumentationItem,

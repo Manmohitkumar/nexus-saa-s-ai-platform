@@ -115,9 +115,13 @@ export function DashboardSidebar() {
       <div className="p-3 space-y-1" style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
         <Link href="/dashboard/settings"
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors"
-          style={{ color: "#90CAF9" }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(144, 202, 249, 0.18)"; (e.currentTarget as HTMLElement).style.color = "#FFFFFF"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#90CAF9"; }}>
+          style={{
+            background: pathname === "/dashboard/settings" ? "#2196F3" : "transparent",
+            border: `1px solid ${pathname === "/dashboard/settings" ? "#2196F3" : "transparent"}`,
+            color: pathname === "/dashboard/settings" ? "#FFFFFF" : "#90CAF9",
+          }}
+          onMouseEnter={e => { if (pathname !== "/dashboard/settings") { (e.currentTarget as HTMLElement).style.background = "rgba(144, 202, 249, 0.18)"; (e.currentTarget as HTMLElement).style.color = "#FFFFFF"; } }}
+          onMouseLeave={e => { if (pathname !== "/dashboard/settings") { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#90CAF9"; } }}>
           <Settings className="w-4 h-4 shrink-0" />
           {!collapsed && <span className="text-sm">Settings</span>}
         </Link>

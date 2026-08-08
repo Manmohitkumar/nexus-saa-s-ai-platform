@@ -140,7 +140,7 @@ export default function SettingsPage() {
                         <article className="rounded-2xl p-5" style={{ background: "#FFFFFF", border: "1px solid #D6EAF8" }}>
                             <p className="text-sm font-semibold text-[#211F20]">Operational summary</p>
                             <ul className="mt-3 space-y-2 text-sm" style={{ color: "#5F6B7A" }}>
-                                <li>• 7 feature modules are active and available in the workspace.</li>
+                                <li>• 9 intelligence modules are active and available in the workspace.</li>
                                 <li>• Documentation signals are refreshed every 15 minutes.</li>
                                 <li>• Executive alerts are routed to the leadership channel.</li>
                             </ul>
