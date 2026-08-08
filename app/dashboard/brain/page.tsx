@@ -3,8 +3,8 @@
 import { DashboardTopbar } from "@/components/dashboard/topbar";
 import { useEffect, useMemo, useState } from "react";
 import { Search, ZoomIn, ZoomOut, RefreshCw, Filter } from "lucide-react";
-import { fetchBrainGraphView } from "@/lib/phoenix/api";
-import type { BrainGraphView } from "@/lib/phoenix/types";
+import { fetchBrainGraphView, fetchBrainGraphNode, fetchRecentEvents } from "@/lib/phoenix/api";
+import type { BrainGraphNodeDetail, BrainGraphView, BusEvent } from "@/lib/phoenix/types";
 
 const riskColors: Record<string, string> = {
   low: "oklch(0.65 0.15 150)",
@@ -14,19 +14,21 @@ const riskColors: Record<string, string> = {
 };
 
 const typeIcons: Record<string, string> = {
-  service: "⚙️", database: "🗄️", external: "🌐", repo: "📁",
+  service: "⚙️", database: "🗄️", external: "🌐", repo: "📁", team: "👥", person: "🧑‍💻",
 };
 
-const coordinateX = [50, 150, 280, 280, 60, 400, 420, 380, 260, 80];
-const coordinateY = [50, 120, 60, 200, 180, 80, 160, 260, 310, 310];
+const coordinateX = [50, 150, 280, 280, 60, 400, 420, 380, 260, 80, 200, 340, 110];
+const coordinateY = [50, 120, 60, 200, 180, 80, 160, 260, 310, 310, 250, 30, 330];
 
 export default function BrainPage() {
   const [graphView, setGraphView] = useState<BrainGraphView | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<BrainGraphNodeDetail | null>(null);
   const [search, setSearch] = useState("");
   const [zoom, setZoom] = useState(1);
   const [riskFilter, setRiskFilter] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [liveEvents, setLiveEvents] = useState<BusEvent[]>([]);
 
   const loadGraph = () => {
     setRefreshing(true);
@@ -36,8 +38,29 @@ export default function BrainPage() {
       .finally(() => setRefreshing(false));
   };
 
+  const loadEvents = () => {
+    fetchRecentEvents()
+      .then((res) => setLiveEvents(res.events))
+      .catch((error) => console.error("Failed to load events", error));
+  };
+
+  const selectNode = (id: string | null) => {
+    setSelected(id);
+    setSelectedDetail(null);
+    if (!id) return;
+    fetchBrainGraphNode(id)
+      .then(setSelectedDetail)
+      .catch((error) => {
+        console.error("Failed to load node detail", error);
+        setSelectedDetail(null);
+      });
+  };
+
   useEffect(() => {
     loadGraph();
+    loadEvents();
+    const timer = setInterval(loadEvents, 15000);
+    return () => clearInterval(timer);
   }, []);
 
   const nodes = useMemo(() => {
@@ -46,7 +69,7 @@ export default function BrainPage() {
       ...node,
       x: coordinateX[index % coordinateX.length] ?? 80,
       y: coordinateY[index % coordinateY.length] ?? 180,
-      type: node.kind === "service" ? "service" : node.kind === "database" ? "database" : node.kind === "repository" ? "repo" : node.kind === "team" ? "repo" : "external",
+      type: node.kind === "service" ? "service" : node.kind === "database" ? "database" : node.kind === "repository" ? "repo" : node.kind === "team" ? "team" : "person",
     }));
   }, [graphView]);
 
@@ -71,16 +94,8 @@ export default function BrainPage() {
   };
 
   const typeIcons: Record<string, string> = {
-    service: "⚙️", database: "🗄️", external: "🌐", repo: "📁",
+    service: "⚙️", database: "🗄️", external: "🌐", repo: "📁", team: "👥", person: "🧑‍💻",
   };
-
-  const liveUpdates = [
-    { time: "2s ago", msg: "New API endpoint detected in payments-service", type: "info" },
-    { time: "14s ago", msg: "Sarah Chen pushed to auth-service/feature/oauth", type: "commit" },
-    { time: "1m ago", msg: "Knowledge gap detected: payments-db has no owner", type: "warning" },
-    { time: "3m ago", msg: "API Gateway dependency updated to v3.2.1", type: "update" },
-    { time: "5m ago", msg: "New team member Mike Ross added to analytics team", type: "info" },
-  ];
 
   return (
       <div style={{ background: "oklch(0.07 0.015 260)", minHeight: "100vh" }}>
@@ -182,7 +197,7 @@ export default function BrainPage() {
                     return (
                       <g key={node.id} transform={`translate(${nx}, ${ny})`}
                         className="cursor-pointer"
-                        onClick={() => setSelected(selected === node.id ? null : node.id)}
+                        onClick={() => selectNode(selected === node.id ? null : node.id)}
                         style={{ opacity: isActive ? 1 : 0.2 }}>
                         {isSelected && (
                           <circle r="22" fill="none" stroke="oklch(0.7 0.18 170)" strokeWidth="1"
@@ -216,41 +231,118 @@ export default function BrainPage() {
             {/* Right panel */}
             <div className="space-y-4">
               {/* Node details */}
-              {selectedNode ? (
+              {selected ? (
                 <div className="rounded-2xl p-5" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.7 0.18 170 / 0.3)" }}>
                   <div className="flex items-center gap-2 mb-4">
-                    <span className="text-xl">{typeIcons[selectedNode.type]}</span>
+                    <span className="text-xl">{typeIcons[selectedNode?.type ?? "service"]}</span>
                     <div>
-                      <h3 className="text-sm font-semibold text-white">{selectedNode.label}</h3>
+                      <h3 className="text-sm font-semibold text-white">{selectedNode?.label}</h3>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: riskColors[selectedNode.risk] }} />
-                        <span className="text-[10px] capitalize" style={{ color: riskColors[selectedNode.risk] }}>{selectedNode.risk} risk</span>
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: riskColors[selectedNode?.risk ?? "low"] }} />
+                        <span className="text-[10px] capitalize" style={{ color: riskColors[selectedNode?.risk ?? "low"] }}>{selectedNode?.risk} risk</span>
                       </div>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
-                      <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>CONNECTIONS</p>
-                      <p className="text-sm text-white font-bold">{selectedNode.connections.length}</p>
+
+                  {!selectedDetail ? (
+                    <div className="rounded-lg p-4 text-center" style={{ background: "oklch(0.09 0.018 260)" }}>
+                      <p className="text-xs" style={{ color: "oklch(0.5 0.03 240)" }}>Loading detail...</p>
                     </div>
-                    <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
-                      <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>TYPE</p>
-                      <p className="text-sm text-white capitalize">{selectedNode.type}</p>
-                    </div>
-                    {selectedNode.connections.length > 0 && (
-                      <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
-                        <p className="text-[10px] font-medium mb-2" style={{ color: "oklch(0.5 0.03 240)" }}>DEPENDS ON</p>
-                        <div className="space-y-1">
-                          {selectedNode.connections.map((c) => (
-                            <div key={c} className="text-xs text-white flex items-center gap-1.5">
-                              <div className="w-1 h-1 rounded-full" style={{ background: "oklch(0.7 0.18 170)" }} />
-                              {nodes.find((n) => n.id === c)?.label || c}
-                            </div>
-                          ))}
+                  ) : (
+                    <div className="space-y-3">
+                      {selectedDetail.summary && (
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>SUMMARY</p>
+                          <p className="text-xs" style={{ color: "oklch(0.75 0.02 240)" }}>{selectedDetail.summary}</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>OWNER</p>
+                          <p className="text-sm text-white font-bold">{selectedDetail.owner ?? "Unassigned"}</p>
+                          {selectedDetail.ownerRole && (
+                            <p className="text-[10px] mt-0.5" style={{ color: "oklch(0.5 0.03 240)" }}>{selectedDetail.ownerRole}</p>
+                          )}
+                        </div>
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>TYPE</p>
+                          <p className="text-sm text-white capitalize">{selectedDetail.kind}</p>
+                          {selectedDetail.team && (
+                            <p className="text-[10px] mt-0.5" style={{ color: "oklch(0.5 0.03 240)" }}>{selectedDetail.team}</p>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </div>
+
+                      {selectedDetail.flagStats.total > 0 && (
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-2" style={{ color: "oklch(0.5 0.03 240)" }}>FEATURE FLAGS</p>
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                              <p className="text-sm font-bold text-white">{selectedDetail.flagStats.total}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>total</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold" style={{ color: "oklch(0.75 0.18 60)" }}>{selectedDetail.flagStats.undocumented}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>undocumented</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-white">{selectedDetail.flagStats.enabled}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>enabled</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold" style={{ color: "oklch(0.7 0.2 40)" }}>{selectedDetail.flagStats.enabledUndocumented}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>live undocumented</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-white">{selectedDetail.flagStats.killSwitches}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>kill-switches</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-white">{selectedDetail.flagStats.experiments}</p>
+                              <p className="text-[9px]" style={{ color: "oklch(0.5 0.03 240)" }}>experiments</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedDetail.insight && (
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-1" style={{ color: "oklch(0.5 0.03 240)" }}>AI INSIGHT</p>
+                          <p className="text-xs" style={{ color: "oklch(0.75 0.02 240)" }}>{selectedDetail.insight}</p>
+                        </div>
+                      )}
+
+                      {selectedDetail.recommendations.length > 0 && (
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-2" style={{ color: "oklch(0.5 0.03 240)" }}>RECOMMENDATIONS</p>
+                          <div className="space-y-1.5">
+                            {selectedDetail.recommendations.map((r, i) => (
+                              <div key={i} className="text-xs flex items-start gap-1.5" style={{ color: "oklch(0.6 0.02 240)" }}>
+                                <div className="w-1 h-1 rounded-full mt-1.5 shrink-0" style={{ background: "oklch(0.7 0.18 170)" }} />
+                                {r}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedDetail.connections.length > 0 && (
+                        <div className="rounded-lg p-3" style={{ background: "oklch(0.09 0.018 260)" }}>
+                          <p className="text-[10px] font-medium mb-2" style={{ color: "oklch(0.5 0.03 240)" }}>CONNECTED ENTITIES</p>
+                          <div className="space-y-1">
+                            {selectedDetail.connections.map((c) => (
+                              <div key={c.targetId} className="text-xs flex items-center gap-1.5" style={{ color: "oklch(0.6 0.02 240)" }}>
+                                <div className="w-1 h-1 rounded-full shrink-0" style={{ background: "oklch(0.7 0.18 170)" }} />
+                                <span>{c.direction === "out" ? "→" : "←"}</span>
+                                <span className="font-medium" style={{ color: "oklch(0.8 0.02 240)" }}>{c.targetLabel}</span>
+                                <span className="text-[10px]" style={{ color: "oklch(0.5 0.03 240)" }}>{c.type}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-2xl p-5 text-center" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
@@ -267,12 +359,21 @@ export default function BrainPage() {
                   <span className="text-xs font-semibold text-white">Live Updates</span>
                 </div>
                 <div className="space-y-3">
-                  {liveUpdates.map((u, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-[10px] shrink-0 mt-0.5" style={{ color: "oklch(0.4 0.02 240)" }}>{u.time}</span>
-                      <p className="text-[11px]" style={{ color: "oklch(0.6 0.02 240)" }}>{u.msg}</p>
-                    </div>
-                  ))}
+                  {liveEvents.length === 0 ? (
+                    <p className="text-[11px]" style={{ color: "oklch(0.4 0.02 240)" }}>No events yet.</p>
+                  ) : (
+                    liveEvents.slice(0, 8).map((e, i) => (
+                      <div key={`${e.resource}-${i}`} className="flex gap-2">
+                        <span className="text-[10px] shrink-0 mt-0.5" style={{ color: "oklch(0.4 0.02 240)" }}>
+                          {new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <p className="text-[11px]" style={{ color: "oklch(0.6 0.02 240)" }}>
+                          <span className="font-medium" style={{ color: "oklch(0.75 0.02 240)" }}>{e.resource}: </span>
+                          {e.detail}
+                        </p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

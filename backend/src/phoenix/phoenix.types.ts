@@ -22,6 +22,36 @@ export interface BrainGraphView {
     };
 }
 
+export interface BrainGraphEdge {
+    type: string;
+    direction: "out" | "in";
+    targetId: string;
+    targetLabel: string;
+}
+
+export interface BrainGraphNodeDetail {
+    id: string;
+    label: string;
+    kind: string;
+    risk: RiskLevel;
+    summary: string;
+    owner: string | null;
+    ownerRole: string | null;
+    team: string | null;
+    systemId: string | null;
+    flagStats: {
+        total: number;
+        undocumented: number;
+        enabled: number;
+        enabledUndocumented: number;
+        killSwitches: number;
+        experiments: number;
+    };
+    connections: BrainGraphEdge[];
+    insight: string;
+    recommendations: string[];
+}
+
 export interface DecisionTimelineEvent {
     date: string;
     label: string;
@@ -122,6 +152,21 @@ export interface DocumentationItem {
     icon: string;
 }
 
+export interface DocumentContentSection {
+    heading: string;
+    body?: string;
+    code?: string;
+    table?: { headers: string[]; rows: string[][] };
+    bullets?: string[];
+}
+
+export interface DocumentContent {
+    name: string;
+    type: string;
+    generatedAt: string;
+    sections: DocumentContentSection[];
+}
+
 export interface ArchitectureWorkflow {
     id: string;
     title: string;
@@ -178,6 +223,7 @@ export interface ReasoningEvidence {
 
 export interface IntelligenceReasoningSnapshot {
     query: string;
+    topic: string;
     summary: string;
     confidence: number;
     evidenceChain: ReasoningEvidence[];
@@ -194,4 +240,34 @@ export interface IntelligenceReasoningSnapshot {
 export interface DocumentationEngineState {
     docs: DocumentationItem[];
     workflows: ArchitectureWorkflow[];
+}
+
+export interface AgentDefinition {
+    id: string;
+    name: string;
+    role: string;
+    scope: string;
+    capability: string;
+    inputs: string[];
+    outputs: string[];
+}
+
+export interface AgentRunResult {
+    agentId: string;
+    name: string;
+    role: string;
+    status: "done";
+    confidence: number;
+    finding: string;
+    details: string[];
+    durationMs: number;
+    sources: string[];
+}
+
+export interface AgentRunReport {
+    query: string;
+    topic: string;
+    triggeredAt: string;
+    totalDurationMs: number;
+    results: AgentRunResult[];
 }

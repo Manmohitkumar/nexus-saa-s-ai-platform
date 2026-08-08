@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, ArrowRight, Check } from "lucide-react";
+import { register } from "@/lib/phoenix/auth";
 
 const plans = [
   { id: "starter", label: "Starter", desc: "Up to 10 users", price: "Free" },
@@ -30,9 +31,14 @@ export function SignupForm() {
     }
     setError("");
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1400));
-    localStorage.setItem("phoenix_auth", "true");
-    router.push("/dashboard");
+    try {
+      await register(form.name, form.email, form.password);
+      localStorage.setItem("phoenix_auth", "true");
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+      setLoading(false);
+    }
   };
 
   const inputBase: React.CSSProperties = {

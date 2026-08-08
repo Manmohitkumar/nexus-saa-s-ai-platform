@@ -1,7 +1,7 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Project Phoenix — Organizational Digital Brain
+// Relational layer (PostgreSQL in production, SQLite for local dev).
+// This schema mirrors the shared intelligence platform: every feature
+// (graph, agents, decisions, risk, docs, sim) reads/writes these models.
 
 generator client {
   provider = "prisma-client"
@@ -9,5 +9,598 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("member") // member | admin
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  auditEvents  AuditEvent[]
+}
+
+model Employee {
+  id        String  @id @default(cuid())
+  name      String
+  role      String
+  team      String
+  risk      Int
+  systems   String  @default("[]") // json array of system ids owned
+  createdBy String?
+
+  // Feature 3 — workforce intelligence metadata. Reusable by the Knowledge
+  // Dependency Engine, Simulation Engine, and the organizational resilience
+  // services consumed by Knowledge Risk Heatmap, AI Mentor, and Executive
+  // Intelligence Dashboard.
+  tenureYears           Int    @default(0)
+  expertise             String @default("[]") // json array of expertise domains
+  mentorship            Int    @default(0)    // mentees / mentoring influence 0-100
+  contributions         Int    @default(0)    // commits + merged PRs
+  incidentsResolved     Int    @default(0)
+  codeReviews           Int    @default(0)
+  collaborationPartners Int    @default(0)    // distinct collaborators (diversity)
+  successionReadiness   Int    @default(0)    // org readiness 0-100 to replace this person
+  busFactor             Int    @default(1)    // people needed to fully cover this person's knowledge
+
+  ownedNodes KnowledgeNode[] @relation("nodeOwner")
+}
+
+model System {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  kind        String        @default("service") // service | database | external | repo
+  owner       String?       // employee id
+  team        String?
+  risk        String        @default("low") // low | medium | high | critical
+  flags       FeatureFlag[]
+  ownedBy     KnowledgeNode? @relation("systemNode")
+}
+
+model FeatureFlag {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  type        String  @default("release")
+  description String  @default("")
+  enabled     Boolean @default(false)
+  rollout     Int     @default(100)
+  stickiness  String  @default("default")
+  variants    Int     @default(0)
+  impressionData Boolean @default(false)
+  createdAt   String  @default("")
+  systemId    String?
+  system      System? @relation(fields: [systemId], references: [id])
+}
+
+model KnowledgeNode {
+  id          String   @id @default(cuid())
+  label       String
+  kind        String   // service | database | repo | team | employee | api | flag | document | meeting | risk
+  risk        String   @default("low")
+  summary     String   @default("")
+  metadata    String   @default("{}") // json blob
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ownerId     String?
+  owner       Employee? @relation("nodeOwner", fields: [ownerId], references: [id])
+  systemId    String?   @unique
+  system      System? @relation("systemNode", fields: [systemId], references: [id])
+
+  sourceEdges   KnowledgeEdge[] @relation("edgeSource")
+  targetEdges   KnowledgeEdge[] @relation("edgeTarget")
+}
+
+model KnowledgeEdge {
+  id        String   @id @default(cuid())
+  type      String   // owns | depends_on | communicates | implements | approves | replaced_by | references | impacts | evolved_from | collaborates
+  weight    Float    @default(1.0)
+  sourceId  String
+  targetId  String
+  source    KnowledgeNode @relation("edgeSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target    KnowledgeNode @relation("edgeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([sourceId])
+  @@index([targetId])
+}
+
+model Decision {
+  id        String   @id @default(cuid())
+  topic     String
+  query     String
+  reasoning String
+  confidence Int     @default(0)
+  createdAt DateTime @default(now())
+}
+
+// ============================================================================
+// Feature 2 — Decision Time Machine
+// Decisions are first-class intelligence objects in the Organizational Digital
+// Brain. Each DecisionRecord links to the existing knowledge graph via
+// DecisionRelation (proposed_by, impacts, depends_on, ...) and to evidence
+// artifacts, milestones, alternatives, and measurable outcomes.
+// ============================================================================
+
+model DecisionRecord {
+  id                String   @id @default(cuid())
+  title             String
+  topic             String
+  domain            String   @default("platform") // database | auth | api | infrastructure | flags | architecture | ai
+  status            String   @default("identified") // identified | discussed | approved | implemented | validated | superseded
+  summary           String   @default("")
+  businessContext   String   @default("")
+  technicalContext  String   @default("")
+  confidence        Int      @default(0)
+  startedAt         String   @default("")
+  decidedAt         String?
+  implementedAt     String?
+  supersededById    String?
+  supersededBy      DecisionRecord? @relation("decisionSupersede", fields: [supersededById], references: [id])
+  supersedes        DecisionRecord[] @relation("decisionSupersede")
+  createdBy         String?
+  team              String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  alternatives DecisionAlternative[]
+  evidence     DecisionEvidence[]
+  milestones   DecisionMilestone[]
+  outcomes     DecisionOutcome[]
+  relations    DecisionRelation[]
+
+  @@index([status])
+  @@index([domain])
+}
+
+model DecisionAlternative {
+  id         String         @id @default(cuid())
+  decisionId String
+  decision   DecisionRecord @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  label      String
+  status     String         @default("considered") // accepted | rejected | considered
+  rationale  String         @default("")
+  votes      Int            @default(0)
+  confidence Int            @default(0)
+  order      Int            @default(0)
+}
+
+model DecisionEvidence {
+  id         String         @id @default(cuid())
+  decisionId String
+  decision   DecisionRecord @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  sourceType String         // meeting | adr | commit | doc | incident | deployment | message | jira
+  sourceRef  String
+  excerpt    String         @default("")
+  confidence Int            @default(0)
+  date       String         @default("")
+}
+
+model DecisionMilestone {
+  id              String         @id @default(cuid())
+  decisionId      String
+  decision        DecisionRecord @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  label           String
+  phase           String         // problem | discussion | evaluation | approval | implementation | deployment | outcome
+  date            String         @default("")
+  summary         String         @default("")
+  evidenceSources Int            @default(0)
+  order           Int            @default(0)
+}
+
+model DecisionOutcome {
+  id         String         @id @default(cuid())
+  decisionId String
+  decision   DecisionRecord @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  metric     String
+  before     String         @default("")
+  after      String         @default("")
+  direction  String         @default("improved") // improved | declined | neutral
+}
+
+model DecisionRelation {
+  id          String         @id @default(cuid())
+  decisionId  String
+  decision    DecisionRecord @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  type        String         // proposed_by | discussed_in | approved_by | implemented_by | rejected_by | impacts | depends_on | replaces | influenced_by | validates | mitigates | contributes_to
+  targetType  String         @default("knowledge") // knowledge | decision
+  targetId    String
+  targetLabel String         @default("")
+
+  @@index([type])
+  @@index([targetId])
+}
+
+model AgentMemory {
+  id        String   @id @default(cuid())
+  key       String
+  agentId   String
+  role      String
+  content   String
+  sources   String   @default("[]")
+  confidence Int     @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([key, agentId])
+  @@index([key])
+}
+
+// ============================================================================
+// Feature 3 — Employee Exit Simulation
+// Versioned simulation runs keep historical organizational resilience so
+// leadership can compare how vulnerability changed over time. Every run is
+// derived from the existing graph + workforce metadata; nothing is invented.
+// ============================================================================
+
+model ExitSimulationRun {
+  id                      String   @id @default(cuid())
+  label                   String   @default("")
+  scenarioType            String   @default("single") // single | team | domain | system
+  trigger                 String   @default("manual") // manual | scheduled | ownership_change
+  employeeIds             String   @default("[]") // json array of employee ids simulated
+  systemIds               String   @default("[]") // json array of affected system ids
+  projectedKnowledgeLoss  Int      @default(0)   // 0-100
+  resilienceBefore        Int      @default(0)   // org resilience score before
+  resilienceAfter         Int      @default(0)   // org resilience score after
+  metrics                 String   @default("{}") // json snapshot of affected-system metrics
+  findings                String   @default("[]") // json array of evidence-based findings
+  summary                 String   @default("")
+  createdBy               String?
+  createdAt               DateTime @default(now())
+
+  transferActions KnowledgeTransferAction[]
+}
+
+model KnowledgeTransferAction {
+  id           String             @id @default(cuid())
+  simulationId String
+  simulation   ExitSimulationRun  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  title        String
+  detail       String
+  type         String             @default("documentation") // documentation | mentorship | ownership_transfer | pairing | walkthrough | training | handover
+  priority     String             @default("medium") // critical | high | medium
+  etaWeeks     Int                @default(1)
+  confidence   Int                @default(0)
+  evidence     String             @default("[]") // json array of evidence strings
+  status       String             @default("recommended") // recommended | in_progress | completed
+  createdAt    DateTime           @default(now())
+}
+
+// ============================================================================
+// Feature 4 — Knowledge Risk Heatmap
+// Historical snapshots of organizational risk metrics preserved for trend
+// analysis, predictive comparisons, and the Risk Timeline Viewer. The Risk
+// Intelligence Engine recalculates and persists a snapshot on demand and on
+// schedule; every snapshot is derived from Features 1-3, never re-collected.
+// ============================================================================
+
+model RiskSnapshot {
+  id                String   @id @default(cuid())
+  orgResilience     Int      @default(0)
+  averageRisk       Int      @default(0)
+  documentationCoverage Int  @default(0)
+  knowledgeConcentration Int @default(0)
+  technicalDebt     Int      @default(0)
+  singleOwnerSystems Int     @default(0)
+  undocumentedFlags Int      @default(0)
+  criticalNodes     Int      @default(0)
+  metrics           String   @default("{}") // json snapshot of per-node risk attributes
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actor     String
+  action    String
+  resource  String
+  detail    String   @default("")
+  ip        String   @default("")
+  createdAt DateTime @default(now())
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+}
+
+// Feature 5 — AI Mentor conversations and messages.
+model MentorConversation {
+  id         String          @id @default(cuid())
+  userId     String?         // null = anonymous/guest session
+  title      String          @default("Mentor conversation")
+  topic      String          @default("general")
+  capability String          @default("general")
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  messages   MentorMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model MentorMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  conversation   MentorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String            // user | mentor
+  content        String
+  confidence     Float             @default(0)
+  payload        String            @default("{}") // json MentorAnswer payload
+  createdAt      DateTime          @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ============================================================================
+// Feature 6 — Autonomous Documentation Engine
+// Documentation is the publishing layer of the Organizational Digital Brain:
+// every row is derived from Features 1-5 data (graph, flags, decisions,
+// workforce, risk) and re-synchronized by the Documentation Evolution Pipeline
+// whenever the brain changes. Complete version history is preserved so docs can
+// be compared, audited, approved, and rolled back.
+// ============================================================================
+
+model Documentation {
+  id             String                @id @default(cuid())
+  title          String
+  slug           String                @unique
+  kind           String                // architecture | api | repository | service | infrastructure | runbook | onboarding | team | adr | specification | release-notes | deployment-guide | incident-report | rca | changelog | business-process | playbook | knowledge-transfer | executive-summary
+  summary        String                @default("")
+  status         String                @default("draft") // current | draft | stale | missing
+  confidence     Int                   @default(0)
+  quality        Int                   @default(0)
+  owner          String                @default("") // employee or team name
+  team           String                @default("")
+  sourceType     String                @default("") // system | api | database | infrastructure | decision | employee | org | repository
+  sourceRef      String                @default("") // id/name of the referenced brain entity
+  relatedNode    String                @default("") // knowledge graph node id
+  version        Int                   @default(1)
+  lastVerifiedAt DateTime              @default(now())
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  versions       DocumentationVersion[]
+
+  @@index([kind])
+  @@index([status])
+  @@index([sourceType])
+}
+
+model DocumentationVersion {
+  id              String         @id @default(cuid())
+  documentationId String
+  documentation   Documentation  @relation(fields: [documentationId], references: [id], onDelete: Cascade)
+  version         Int
+  change          String         @default("") // why this version was published
+  author          String         @default("Documentation Agent")
+  status          String         @default("current") // current | superseded | approved | rolled_back
+  content         String         @default("{}") // json DocSection[] payload
+  quality         Int            @default(0)
+  confidence      Int            @default(0)
+  createdAt       DateTime       @default(now())
+
+  @@unique([documentationId, version])
+  @@index([documentationId, createdAt])
+}
+
+model DocumentationHealthSnapshot {
+  id                String   @id @default(cuid())
+  health            Int      @default(0)
+  coverage          Int      @default(0)
+  freshness         Int      @default(0)
+  consistency       Int      @default(0)
+  completeness      Int      @default(0)
+  currentDocs       Int      @default(0)
+  staleDocs         Int      @default(0)
+  draftDocs         Int      @default(0)
+  missingDocs       Int      @default(0)
+  undocumentedFlags Int      @default(0)
+  metrics           String   @default("{}") // json by-kind distribution
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model DocumentationEvolutionEvent {
+  id                 String   @id @default(cuid())
+  trigger            String   // decision.reconstructed | mentor.answered | fleet.completed | agent.completed | manual | regenerate
+  resource           String   @default("")
+  detail             String   @default("")
+  action             String   // evaluated | regenerated | updated | versioned | validated | rolled_back
+  documentsAffected  String   @default("[]") // json array of documentation ids
+  summary            String   @default("")
+  createdAt          DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Feature 8 — Executive Intelligence Dashboard
+// Strategic presentation + prioritization layer. Zero new intelligence: it only
+// aggregates, visualizes, predicts, prioritizes, and assists executives by
+// consuming Features 1-7 signals. Periodic ExecutiveSnapshot rows preserve
+// historical KPI snapshots for long-term trend analysis; ExecutiveReport rows
+// persist generated daily/weekly/monthly/quarterly/annual reports.
+// ============================================================================
+
+model ExecutiveSnapshot {
+  id            String   @id @default(cuid())
+  overallHealth Int      @default(0)
+  status        String   @default("watch") // healthy | watch | critical
+  confidence    Int      @default(0)
+  kpis          String   @default("{}") // json Record<string, number>
+  metrics       String   @default("{}") // json raw metrics snapshot
+  trigger       String   @default("manual") // manual | event | boot
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ExecutiveReport {
+  id        String   @id @default(cuid())
+  period    String   // daily | weekly | monthly | quarterly | annual
+  title     String
+  format    String   // markdown | json | email
+  summary   String   @default("")
+  markdown  String   @default("")
+  json      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model IntelligenceInsight {
+  id                String   @id @default(cuid())
+  kind              String   // cross-domain | health | architecture | workforce | knowledge | decision | operational | strategic | executive | predictive | recommendation | event
+  title             String
+  summary           String   @default("")
+  detail            String   @default("")
+  confidence        Int      @default(0)
+  priority          String   @default("medium") // critical | high | medium | info
+  evidence          String   @default("[]") // json array of {source, excerpt, type, confidence}
+  affectedSystems   String   @default("[]") // json array of system labels
+  relatedDecisions  String   @default("[]") // json array of decision titles
+  relatedDocs       String   @default("[]") // json array of documentation titles
+  recommendation    String   @default("")
+  action            String   @default("")
+  source            String   @default("manual") // manual | event | sweep
+  trigger           String   @default("")
+  status            String   @default("active") // active | dismissed
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([kind])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Feature 9 — Agent Task Intelligence Layer
+// A shared integration layer, NOT a new intelligence silo. Agent tasks are
+// transparent, evidence-driven, reviewable, searchable, filterable, persistent,
+// and exportable while maintaining direct relationships with the Project
+// Phoenix intelligence ecosystem. Tasks declare Source Checklist items that
+// validate against the existing ACE features; dependencies are explicit and
+// readiness is computed by backend business logic. Every task belongs to an
+// existing feature / project / agent / owner context.
+// ============================================================================
+
+model AgentTask {
+  id                  String                 @id @default(cuid())
+  title               String
+  description         String                 @default("")
+  feature             String                 @default("executive") // which ACE feature this task belongs to: org-brain | decisions | exit-sim | risk | mentor | docs | intelligence | executive | cross-feature
+  project             String                 @default("Project Phoenix")
+  section             String                 @default("")   // generated content section used for section-level search
+  status              String                 @default("pending") // pending | in_progress | awaiting_review | complete | blocked
+  readiness           String                 @default("waiting") // ready | waiting | blocked | failed | stale | missing-data | complete
+  owner               String                 @default("")   // human owner
+  team                String                 @default("")
+  responsibleAgent    String                 @default("a13")
+  priority            String                 @default("medium") // critical | high | medium | low
+  createdBy           String                 @default("system")
+  version             Int                    @default(1)    // bumped on each mutation for optimistic concurrency
+  requiredTotal       Int                    @default(0)
+  requiredComplete    Int                    @default(0)
+  optionalTotal       Int                    @default(0)
+  optionalComplete    Int                    @default(0)
+  requiredPercentage  Int                    @default(0)
+  optionalPercentage  Int                    @default(0)
+  missingSourceCount  Int                    @default(0)
+  staleSourceCount    Int                    @default(0)
+  blockedDependencyCount Int                 @default(0)
+  validationFailures  Int                    @default(0)
+  generatedSections   String                 @default("[]") // json TaskGeneratedSection[]
+  evidenceMappings    String                 @default("[]") // json TaskEvidenceMapping[]
+  sourcesUsed         String                 @default("[]") // json TaskSourceReference[]
+  notes               String                 @default("")
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  checklistItems      AgentTaskChecklistItem[]
+  dependencies        AgentTaskDependency[]
+  activities          AgentTaskActivity[]
+  exports             AgentTaskExport[]
+
+  @@index([feature])
+  @@index([status])
+  @@index([readiness])
+  @@index([responsibleAgent])
+  @@index([project])
+  @@index([createdAt])
+}
+
+model AgentTaskChecklistItem {
+  id               String   @id @default(cuid())
+  taskId           String
+  task             AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requirementName  String
+  description      String   @default("")
+  sourceType       String   // brain-entity | decision | employee | team | repository | document | risk | simulation | timeline | ai-analysis | connector | workflow
+  sourceRef        String   @default("")  // reference to existing ACE source (node id, decision id, doc id, feature name)
+  required         Boolean  @default(true)
+  completed        Boolean  @default(false)
+  validationState  String   @default("pending") // pending | validated | missing | inaccessible | stale | invalid | conflicting | needs-review
+  missingData      Boolean  @default(false)
+  freshness        Int      @default(0)   // 0-100 freshness of the referenced source
+  confidence       Int      @default(0)
+  owner            String   @default("")
+  responsibleAgent String   @default("a13")
+  notes            String   @default("")
+  upstreamDependency String @default("") // which ACE feature provides this source
+  order            Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([taskId])
+  @@index([sourceType])
+  @@index([validationState])
+}
+
+model AgentTaskDependency {
+  id             String   @id @default(cuid())
+  taskId         String
+  task           AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  dependencyType String   // task | feature | evidence | graph-entity | agent-result | workflow-state
+  sourceType     String   @default("feature") // task | feature | evidence | graph-entity | agent-result
+  sourceId       String   // task id, feature name, evidence ref, graph node id, agent id
+  sourceLabel    String   @default("")
+  status         String   @default("waiting") // ready | waiting | blocked | failed | stale | missing-data | complete
+  reason         String   @default("")
+  createdAt      DateTime @default(now())
+  lastValidatedAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([sourceId])
+}
+
+model AgentTaskActivity {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor     String   // human owner or responsible agent id
+  action    String   // created | checklist_item_updated | dependency_updated | validated | generated | exported | status_changed | reviewed
+  detail    String   @default("")
+  evidenceDelta String @default("{}") // json showing before/after of the change
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+model AgentTaskExport {
+  id          String   @id @default(cuid())
+  taskId      String
+  task        AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  format      String   // markdown | csv | html
+  taskVersion Int      @default(1)
+  exportedBy  String   @default("system")
+  content     String   @default("")
+  summary     String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([taskId])
 }

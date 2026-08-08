@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 
 @Controller('dashboard')
@@ -15,8 +15,13 @@ export class DashboardController {
         return this.dashboardService.getBrainGraphView();
     }
 
+    @Get('graph/node/:id')
+    getGraphNode(@Param('id') id: string) {
+        return this.dashboardService.getBrainGraphNode(id);
+    }
+
     @Get('timeline')
-    getTimeline() {
-        return this.dashboardService.getDecisionTimeline();
+    getTimeline(@Query('query') query = '') {
+        return this.dashboardService.getDecisionTimeline(query);
     }
 }

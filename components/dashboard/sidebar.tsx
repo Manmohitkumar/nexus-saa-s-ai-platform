@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
-  Brain, Clock, UserMinus, Flame, Bot, BookOpen, Cpu, BarChart3,
-  ChevronLeft, ChevronRight, LogOut, Settings
+  Brain, Clock, UserMinus, Flame, Bot, BookOpen, Cpu, BarChart3, Workflow,
+  ListChecks, ChevronLeft, ChevronRight, LogOut, Settings
 } from "lucide-react";
+import { logout } from "@/lib/phoenix/auth";
 
 const navItems = [
   { href: "/dashboard", icon: BarChart3, label: "Overview", badge: null },
@@ -17,6 +18,8 @@ const navItems = [
   { href: "/dashboard/mentor", icon: Bot, label: "Mentor", badge: null },
   { href: "/dashboard/docs", icon: BookOpen, label: "Docs", badge: "Auto" },
   { href: "/dashboard/intelligence", icon: Cpu, label: "Intelligence", badge: null },
+  { href: "/dashboard/agents", icon: Workflow, label: "Agents", badge: "Core" },
+  { href: "/dashboard/tasks", icon: ListChecks, label: "Tasks", badge: "Agent" },
 ];
 
 export function DashboardSidebar() {
@@ -25,7 +28,7 @@ export function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = () => {
-    localStorage.removeItem("phoenix_auth");
+    logout();
     router.push("/");
   };
 

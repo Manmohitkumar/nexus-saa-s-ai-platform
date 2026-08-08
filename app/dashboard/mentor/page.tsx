@@ -2,126 +2,139 @@
 
 import { DashboardTopbar } from "@/components/dashboard/topbar";
 import { useEffect, useRef, useState } from "react";
-import { Send, Bot, User, Cpu, Code, BookOpen, Layers } from "lucide-react";
-import { fetchMentorLearningPaths, fetchMentorPrompts } from "@/lib/phoenix/api";
-import type { LearningPath, MentorPrompt } from "@/lib/phoenix/types";
+import { Send, Bot, User, Layers, Code, BookOpen, Cpu, Sparkles, Link2, GitBranch, Target, CheckCircle2, ChevronRight, Plus, History } from "lucide-react";
+import { askMentor, fetchMentorCapabilities, fetchMentorConversations, fetchMentorLearningPaths, fetchMentorPrompts } from "@/lib/phoenix/api";
+import type { LearningPath, MentorAnswer, MentorCapability, MentorConversationSummary, MentorMessageView, MentorPrompt } from "@/lib/phoenix/types";
+import Link from "next/link";
 
-interface Message {
-  role: "user" | "ai";
+interface ChatMessage {
+  id: string;
+  role: "user" | "mentor";
   content: string;
-  type?: "text" | "code" | "architecture";
+  answer?: MentorAnswer;
+  pending?: boolean;
 }
 
-const initialMessages: Message[] = [
-  {
-    role: "ai",
-    content: "👋 I'm Phoenix AI Mentor — your company's senior AI engineer. Ask me anything about your architecture, APIs, codebase, or best practices. I have full context of your organization.",
-  },
-];
-
-const defaultResponse: Message = {
-  role: "ai",
-  content: "Based on your organization's codebase and documentation, here's what I found:\n\nYour **auth-service** uses JWT tokens with a 24-hour expiry, backed by Redis for session invalidation. The OAuth 2.0 flow connects through the API Gateway before hitting the auth service.\n\n**Key files:**\n- `auth-service/src/jwt/validator.ts` — Token validation logic\n- `auth-service/src/oauth/google.ts` — Google OAuth handler\n- `api-gateway/middleware/auth.ts` — Auth middleware\n\n**⚠️ Knowledge gap detected:** The session invalidation logic has no documentation. Sarah Chen is the sole owner.",
-  type: "architecture",
-};
-
-const buildAIResponse = (query: string): Message => {
-  const q = query.toLowerCase();
-  if (q.includes("postgres") || q.includes("sql") || q.includes("database") || q.includes("migrat")) {
-    return {
-      role: "ai",
-      content: "The decision to migrate to **PostgreSQL** was made in Q2 2022 and is fully reconstructed in the Decision Time Machine.\n\n**Key drivers:**\n- MySQL lacked first-class JSONB support — blocking the new events schema\n- PostgreSQL delivered a **3.2× advantage** on the team's read benchmark\n- 8 meetings referenced MySQL's JSONB gap as a critical blocker\n\n**Timeline:** Initial evaluation (Jan 2022) → ADR-014 (May 2022) → team vote 7-2 (Jun 2022) → migration completed (Oct 2022).\n\n**Open the Decision Time Machine** (`/dashboard/decisions`) to replay the full evidence chain.",
-      type: "architecture",
-    };
-  }
-  if (q.includes("auth") || q.includes("oauth") || q.includes("jwt") || q.includes("session") || q.includes("login")) {
-    return {
-      role: "ai",
-      content: "Here's how authentication flows through your organization:\n\n1. Client request hits the **API Gateway** → `api-gateway/middleware/auth.ts`\n2. JWT is validated with a 24-hour expiry by `auth-service/src/jwt/validator.ts`\n3. Session invalidation is backed by **Redis**\n4. Google OAuth 2.0 is handled by `auth-service/src/oauth/google.ts`\n\n**⚠️ Risk:** The exit simulation rates auth ownership as a **94% risk** — Sarah Chen is the sole owner of the critical auth pathways. Assign a co-owner and document the flows.",
-      type: "architecture",
-    };
-  }
-  if (q.includes("payment") || q.includes("stripe") || q.includes("checkout") || q.includes("billing")) {
-    return {
-      role: "ai",
-      content: "The **payments domain** is owned by Mike Ross and is flagged as **critical risk** on the heatmap (12% doc coverage).\n\n**Critical systems:** payments core, api-gateway routing, monitoring.\n\n**Top concern:** the Stripe webhook has **no owner** and 29% documentation coverage — missing error handling is one of the team's recurring mistakes.\n\n**Recommended:** run a knowledge-transfer deep dive and add backup engineers (see exit simulation action plan).",
-      type: "architecture",
-    };
-  }
-  if (q.includes("rate limit") || q.includes("scal") || q.includes("performance") || q.includes("load")) {
-    return {
-      role: "ai",
-      content: "**Scaling & rate limiting guidance:**\n\n- The gateway enforces rate limits per client, but the rate limiter module has only 34% documentation coverage\n- Analytics queries were historically N+1 heavy — a known team-wide mistake\n- PostgreSQL outperforms the legacy stack on the read-heavy workload (3.2×)\n\n**Recommended actions:**\n1. Document the rate limiter rules and thresholds (Sarah owns this)\n2. Add an index review for the analytics module\n3. Refresh runbooks linked to the load balancer (38% coverage, no owner)",
-      type: "architecture",
-    };
-  }
-  if (q.includes("doc") || q.includes("runbook") || q.includes("onboard") || q.includes("knowledge")) {
-    return {
-      role: "ai",
-      content: "**Documentation health summary:**\n\n- Overall coverage: **61%** (7 of 8 tracked docs stale or missing coverage)\n- `Data Pipeline Runbook` and `Onboarding Guide` are **stale**\n- `Stripe Webhook` and `K8s Infrastructure Overview` are **missing** entirely\n\nUse the **Autonomous Documentation Engine** (`/dashboard/docs`) to regenerate any stale or missing doc — generation is triggered with one click.",
-      type: "architecture",
-    };
-  }
-  if (q.includes("k8s") || q.includes("kubernetes") || q.includes("infra") || q.includes("cloud") || q.includes("deploy")) {
-    return {
-      role: "ai",
-      content: "**Infrastructure & deployment:**\n\n- Stack: Docker, GitHub Actions, Vercel, Railway/Render, NGINX, Cloudflare\n- K8s config coverage sits at **58%** — the `K8s Infrastructure Overview` doc is missing\n- CI/CD pipeline is owned by Alice Park at 61% coverage\n- Monitoring: Sentry, OpenTelemetry, Prometheus, Grafana\n\n**⚠️ Alert:** `Load Balancer` (38% coverage) and `Security Certs` (5% coverage) have **no owner** — these are SPOF candidates on the risk heatmap.",
-      type: "architecture",
-    };
-  }
-  if (q.includes("outage") || q.includes("incident") || q.includes("q3") || q.includes("downtime")) {
-    return {
-      role: "ai",
-      content: "The Q3 outage traces back to the **API Gateway** and **payments orchestration** — both flagged as critical knowledge domains in the exit simulation.\n\n**Root causes identified:**\n- Rate limiter config gaps (34% coverage, unowned edge cases)\n- Stripe webhook error handling missing\n- Recovery runbooks were stale\n\n**Prevention plan:** formalize incident runbooks, add shadow on-call rotations, and document the gateway auth path within 5 business days.",
-      type: "architecture",
-    };
-  }
-  return defaultResponse;
+const capabilityLabels: Record<string, string> = {
+  architecture: "Architecture Explanation",
+  repository: "Repository Walkthrough",
+  dependency: "Service Dependency",
+  api: "API Understanding",
+  database: "Database Relationships",
+  decision: "Decision Explanation",
+  history: "Historical Context",
+  documentation: "Documentation Guidance",
+  onboarding: "Onboarding",
+  discovery: "Knowledge Discovery",
+  incident: "Incident Learning",
+  debt: "Technical Debt",
+  "best-practice": "Best Practice",
+  navigation: "Org Navigation",
+  business: "Business Process",
+  general: "General Mentoring",
 };
 
 export default function MentorPage() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<MentorPrompt[]>([]);
   const [learningPaths, setLearningPaths] = useState<LearningPath[]>([]);
+  const [capabilities, setCapabilities] = useState<MentorCapability[]>([]);
+  const [conversations, setConversations] = useState<MentorConversationSummary[]>([]);
+  const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const [loadingConversation, setLoadingConversation] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchMentorPrompts()
-      .then(setPromptTemplates)
-      .catch((error) => console.error("Failed to load mentor prompts", error));
-    fetchMentorLearningPaths()
-      .then(setLearningPaths)
-      .catch((error) => console.error("Failed to load mentor learning paths", error));
+    fetchMentorPrompts().then(setPromptTemplates).catch(() => {});
+    fetchMentorLearningPaths().then(setLearningPaths).catch(() => {});
+    fetchMentorCapabilities().then(setCapabilities).catch(() => {});
+    refreshConversations();
   }, []);
+
+  const refreshConversations = () => {
+    fetchMentorConversations().then(setConversations).catch(() => {});
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, busy]);
 
   const sendMessage = async (text?: string) => {
     const msg = text || input.trim();
-    if (!msg) return;
+    if (!msg || busy) return;
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: msg }]);
-    setTyping(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setTyping(false);
-    setMessages((m) => [...m, buildAIResponse(msg)]);
+    setBusy(true);
+
+    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: msg };
+    const pendingMsg: ChatMessage = { id: `p-${Date.now()}`, role: "mentor", content: "", pending: true };
+    setMessages((m) => [...m, userMsg, pendingMsg]);
+
+    try {
+      const answer = await askMentor(msg, activeConversation ?? undefined);
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === pendingMsg.id
+            ? { id: `a-${Date.now()}`, role: "mentor", content: answer.answer, answer }
+            : x,
+        ),
+      );
+      if (answer.conversationId) setActiveConversation(answer.conversationId);
+      refreshConversations();
+    } catch (error) {
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === pendingMsg.id
+            ? { id: `e-${Date.now()}`, role: "mentor", content: `Something went wrong while consulting the Organizational Digital Brain: ${error instanceof Error ? error.message : "unknown error"}` }
+            : x,
+        ),
+      );
+    }
+    setBusy(false);
   };
 
-  const quickPrompts = promptTemplates.length >= 4 ? [
-    { icon: Layers, text: promptTemplates[0].title },
-    { icon: Code, text: promptTemplates[1].title },
-    { icon: BookOpen, text: promptTemplates[2].title },
-    { icon: Cpu, text: promptTemplates[3].title },
-  ] : [
-    { icon: Layers, text: "Architecture guidance" },
-    { icon: Code, text: "Code quality review" },
-    { icon: BookOpen, text: "Documentation health" },
-    { icon: Cpu, text: "System performance" },
-  ];
+  const openConversation = async (id: string) => {
+    if (loadingConversation || id === activeConversation) return;
+    setLoadingConversation(true);
+    try {
+      const detail = await (await import("@/lib/phoenix/api")).fetchMentorConversation(id);
+      setActiveConversation(id);
+      setMessages(
+        detail.messages.map((m: MentorMessageView, i: number) => ({
+          id: `${m.id}-${i}`,
+          role: m.role,
+          content: m.content,
+          answer: m.payload ?? undefined,
+        })),
+      );
+    } catch {
+      // keep current thread
+    }
+    setLoadingConversation(false);
+  };
+
+  const newConversation = () => {
+    setActiveConversation(null);
+    setMessages([]);
+  };
+
+  const quickPrompts =
+    promptTemplates.length >= 4
+      ? [
+          { icon: Layers, text: promptTemplates[0].title },
+          { icon: Code, text: promptTemplates[1].title },
+          { icon: BookOpen, text: promptTemplates[2].title },
+          { icon: Cpu, text: promptTemplates[3].title },
+        ]
+      : [
+          { icon: Layers, text: "Explain how the authentication system works" },
+          { icon: Code, text: "Which services depend on the API gateway?" },
+          { icon: BookOpen, text: "What documentation should I read first?" },
+          { icon: Cpu, text: "Where is our technical debt?" },
+        ];
+
+  const latestAnswer = [...messages].reverse().find((m) => m.answer)?.answer;
 
   return (
     <div style={{ background: "oklch(0.07 0.015 260)", minHeight: "100vh" }}>
@@ -138,13 +151,20 @@ export default function MentorPage() {
                 style={{ background: "oklch(0.7 0.18 170 / 0.15)", border: "1px solid oklch(0.7 0.18 170 / 0.3)" }}>
                 <Bot className="w-5 h-5" style={{ color: "oklch(0.7 0.18 170)" }} />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-semibold text-white">Phoenix AI Mentor</p>
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "oklch(0.65 0.15 150)" }} />
-                  <p className="text-[10px]" style={{ color: "oklch(0.65 0.15 150)" }}>Online · Full org context loaded</p>
+                  <p className="text-[10px]" style={{ color: "oklch(0.65 0.15 150)" }}>
+                    {latestAnswer ? `Latest answer ${latestAnswer.confidence}% confident` : "Online · Full org context loaded"}
+                  </p>
                 </div>
               </div>
+              <button onClick={newConversation}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-all duration-200"
+                style={{ background: "oklch(0.16 0.025 260)", border: "1px solid oklch(0.25 0.02 260)", color: "oklch(0.65 0.02 240)" }}>
+                <Plus className="w-3 h-3" /> New conversation
+              </button>
             </div>
 
             {/* Quick prompts */}
@@ -153,8 +173,8 @@ export default function MentorPage() {
                 <button key={q.text} onClick={() => sendMessage(q.text)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-all duration-200"
                   style={{ background: "oklch(0.16 0.025 260)", border: "1px solid oklch(0.25 0.02 260)", color: "oklch(0.65 0.02 240)" }}
-                  onMouseEnter={e => { (e.currentTarget).style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; (e.currentTarget).style.color = "oklch(0.7 0.18 170)"; }}
-                  onMouseLeave={e => { (e.currentTarget).style.borderColor = "oklch(0.25 0.02 260)"; (e.currentTarget).style.color = "oklch(0.65 0.02 240)"; }}>
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; e.currentTarget.style.color = "oklch(0.7 0.18 170)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.25 0.02 260)"; e.currentTarget.style.color = "oklch(0.65 0.02 240)"; }}>
                   <q.icon className="w-3 h-3" />
                   {q.text}
                 </button>
@@ -163,26 +183,22 @@ export default function MentorPage() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg, i) => (
-                <div key={i} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                    style={{
-                      background: msg.role === "ai" ? "oklch(0.7 0.18 170 / 0.15)" : "oklch(0.18 0.025 260)",
-                      border: `1px solid ${msg.role === "ai" ? "oklch(0.7 0.18 170 / 0.3)" : "oklch(0.28 0.025 260)"}`,
-                    }}>
-                    {msg.role === "ai" ? <Bot className="w-4 h-4" style={{ color: "oklch(0.7 0.18 170)" }} /> : <User className="w-4 h-4" style={{ color: "oklch(0.6 0.02 240)" }} />}
+              {messages.length === 0 && !busy && (
+                <div className="text-center py-14">
+                  <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+                    style={{ background: "oklch(0.7 0.18 170 / 0.12)", border: "1px solid oklch(0.7 0.18 170 / 0.25)" }}>
+                    <Sparkles className="w-7 h-7" style={{ color: "oklch(0.7 0.18 170)" }} />
                   </div>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed`}
-                    style={{
-                      background: msg.role === "ai" ? "oklch(0.14 0.025 260)" : "oklch(0.7 0.18 170 / 0.15)",
-                      border: `1px solid ${msg.role === "ai" ? "oklch(0.22 0.02 260)" : "oklch(0.7 0.18 170 / 0.3)"}`,
-                      color: "oklch(0.8 0.01 240)",
-                    }}>
-                    <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
-                  </div>
+                  <p className="text-white font-semibold text-lg">Ask your organizational brain anything</p>
+                  <p className="text-sm mt-1" style={{ color: "oklch(0.5 0.02 240)" }}>
+                    Architecture, decisions, dependencies, risk, onboarding — grounded in evidence, never invented.
+                  </p>
                 </div>
+              )}
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} msg={msg} onFollowUp={sendMessage} />
               ))}
-              {typing && (
+              {busy && (
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
                     style={{ background: "oklch(0.7 0.18 170 / 0.15)", border: "1px solid oklch(0.7 0.18 170 / 0.3)" }}>
@@ -203,15 +219,15 @@ export default function MentorPage() {
             {/* Input */}
             <div className="p-4" style={{ borderTop: "1px solid oklch(0.18 0.02 260)" }}>
               <div className="flex gap-2">
-                <input value={input} onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
+                <input value={input} onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
                   placeholder="Ask about any system, API, decision, or best practice..."
                   className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all duration-200"
                   style={{ background: "oklch(0.14 0.025 260)", border: "1px solid oklch(0.25 0.02 260)", color: "oklch(0.8 0.01 240)" }}
-                  onFocus={e => { e.target.style.borderColor = "oklch(0.7 0.18 170 / 0.5)"; }}
-                  onBlur={e => { e.target.style.borderColor = "oklch(0.25 0.02 260)"; }} />
+                  onFocus={(e) => { e.target.style.borderColor = "oklch(0.7 0.18 170 / 0.5)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "oklch(0.25 0.02 260)"; }} />
                 <button onClick={() => sendMessage()}
-                  className="w-11 h-11 rounded-xl flex items-center justify-center transition-all"
+                  className="w-11 h-11 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
                   style={{ background: "oklch(0.7 0.18 170)", boxShadow: "0 0 12px oklch(0.7 0.18 170 / 0.3)" }}>
                   <Send className="w-4 h-4" style={{ color: "oklch(0.06 0.015 260)" }} />
                 </button>
@@ -221,9 +237,52 @@ export default function MentorPage() {
 
           {/* Right sidebar */}
           <div className="space-y-4 overflow-y-auto">
+            {/* Conversation history */}
+            {conversations.length > 0 && (
+              <div className="rounded-2xl p-5" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+                <p className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                  <History className="w-4 h-4" style={{ color: "oklch(0.7 0.18 170)" }} /> Conversation History
+                </p>
+                <div className="space-y-1.5">
+                  {conversations.map((c) => (
+                    <button key={c.id} onClick={() => openConversation(c.id)}
+                      className="w-full text-left flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-all duration-200"
+                      style={{
+                        background: c.id === activeConversation ? "oklch(0.16 0.03 170 / 0.15)" : "oklch(0.09 0.018 260)",
+                        border: `1px solid ${c.id === activeConversation ? "oklch(0.7 0.18 170 / 0.3)" : "oklch(0.18 0.02 260)"}`,
+                      }}>
+                      <span className="text-[11px] truncate" style={{ color: c.id === activeConversation ? "oklch(0.85 0.01 240)" : "oklch(0.55 0.02 240)" }}>
+                        {c.title}
+                      </span>
+                      <span className="text-[10px] shrink-0" style={{ color: "oklch(0.4 0.02 240)" }}>{c.messageCount}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Capabilities */}
+            {capabilities.length > 0 && (
+              <div className="rounded-2xl p-5" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+                <p className="text-sm font-semibold text-white mb-3">Mentoring Capabilities</p>
+                <div className="space-y-1.5">
+                  {capabilities.map((c) => (
+                    <button key={c.id} onClick={() => sendMessage(c.prompts[0] ?? c.name)}
+                      className="w-full text-left px-3 py-2 rounded-lg transition-all duration-200"
+                      style={{ background: "oklch(0.09 0.018 260)", border: "1px solid oklch(0.18 0.02 260)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.18 0.02 260)"; }}>
+                      <p className="text-[11px] font-medium text-white">{c.name}</p>
+                      <p className="text-[10px] mt-0.5" style={{ color: "oklch(0.45 0.02 240)" }}>{c.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Learning paths */}
             <div className="rounded-2xl p-5" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
-              <p className="text-sm font-semibold text-white mb-4">Your Learning Path</p>
+              <p className="text-sm font-semibold text-white mb-4">Learning Paths</p>
               <div className="space-y-4">
                 {learningPaths.map((lp) => (
                   <div key={lp.topic}>
@@ -240,26 +299,224 @@ export default function MentorPage() {
                 ))}
               </div>
             </div>
-
-            {/* Common mistakes */}
-            <div className="rounded-2xl p-5" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
-              <p className="text-sm font-semibold text-white mb-3">Team Common Mistakes</p>
-              <div className="space-y-2.5">
-                {[
-                  { issue: "N+1 queries in analytics module", severity: "high" },
-                  { issue: "Missing error handling in Stripe webhooks", severity: "critical" },
-                  { issue: "Hardcoded timeouts in auth-service", severity: "medium" },
-                ].map((m, i) => (
-                  <div key={i} className="flex items-start gap-2 p-2.5 rounded-lg"
-                    style={{ background: "oklch(0.09 0.018 260)", border: "1px solid oklch(0.18 0.02 260)" }}>
-                    <span className="text-sm shrink-0">{m.severity === "critical" ? "🔴" : m.severity === "high" ? "🟠" : "🟡"}</span>
-                    <p className="text-[11px]" style={{ color: "oklch(0.6 0.02 240)" }}>{m.issue}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ msg, onFollowUp }: { msg: ChatMessage; onFollowUp: (text: string) => void }) {
+  const isUser = msg.role === "user";
+  if (isUser) {
+    return (
+      <div className="flex gap-3 flex-row-reverse">
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: "oklch(0.18 0.025 260)", border: "1px solid oklch(0.28 0.025 260)" }}>
+          <User className="w-4 h-4" style={{ color: "oklch(0.6 0.02 240)" }} />
+        </div>
+        <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+          style={{ background: "oklch(0.7 0.18 170 / 0.15)", border: "1px solid oklch(0.7 0.18 170 / 0.3)", color: "oklch(0.8 0.01 240)" }}>
+          <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (!msg.answer) {
+    return (
+      <div className="flex gap-3">
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: "oklch(0.7 0.18 170 / 0.15)", border: "1px solid oklch(0.7 0.18 170 / 0.3)" }}>
+          <Bot className="w-4 h-4" style={{ color: "oklch(0.7 0.18 170)" }} />
+        </div>
+        <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+          style={{ background: "oklch(0.14 0.025 260)", border: "1px solid oklch(0.22 0.02 260)", color: "oklch(0.8 0.01 240)" }}>
+          <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  const a = msg.answer;
+  return (
+    <div className="flex gap-3">
+      <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: "oklch(0.7 0.18 170 / 0.15)", border: "1px solid oklch(0.7 0.18 170 / 0.3)" }}>
+        <Bot className="w-4 h-4" style={{ color: "oklch(0.7 0.18 170)" }} />
+      </div>
+      <div className="max-w-[85%] space-y-3">
+        {/* Answer card */}
+        <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed"
+          style={{ background: "oklch(0.14 0.025 260)", border: "1px solid oklch(0.22 0.02 260)", color: "oklch(0.8 0.01 240)" }}>
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+              style={{ background: "oklch(0.7 0.18 170 / 0.12)", border: "1px solid oklch(0.7 0.18 170 / 0.3)", color: "oklch(0.7 0.18 170)" }}>
+              {capabilityLabels[a.capability] ?? a.capability}
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+              style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.6 0.02 240)" }}>
+              {a.confidence}% confident
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+              style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.6 0.02 240)" }}>
+              {a.topic}
+            </span>
+          </div>
+          <pre className="whitespace-pre-wrap font-sans">{a.answer}</pre>
+        </div>
+
+        {/* Evidence */}
+        {a.evidence.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "oklch(0.7 0.18 170)" }} /> Evidence ({a.evidence.length})
+            </p>
+            <div className="space-y-1.5">
+              {a.evidence.map((e, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 mt-0.5 font-medium"
+                    style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.55 0.02 240)" }}>
+                    {e.type}
+                  </span>
+                  <div>
+                    <p className="text-[11px] font-medium" style={{ color: "oklch(0.7 0.02 240)" }}>{e.source}</p>
+                    <p className="text-[10px]" style={{ color: "oklch(0.45 0.02 240)" }}>{e.excerpt}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reasoning trace */}
+        {a.reasoning.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2">How I reached this</p>
+            <ul className="space-y-1">
+              {a.reasoning.map((r, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-[10px]" style={{ color: "oklch(0.5 0.02 240)" }}>
+                  <ChevronRight className="w-3 h-3 shrink-0 mt-0.5" style={{ color: "oklch(0.7 0.18 170)" }} />
+                  {r}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Dependencies */}
+        {a.dependencies.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2 flex items-center gap-1.5">
+              <GitBranch className="w-3.5 h-3.5" style={{ color: "oklch(0.7 0.18 170)" }} /> Dependency Paths
+            </p>
+            <div className="space-y-1">
+              {a.dependencies.map((d, i) => (
+                <p key={i} className="text-[10px]" style={{ color: "oklch(0.55 0.02 240)" }}>
+                  <span className="text-white">{d.source}</span> → <span className="text-white">{d.target}</span> <span style={{ color: "oklch(0.4 0.02 240)" }}>({d.type})</span>
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Related knowledge */}
+        {a.relatedKnowledge.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2 flex items-center gap-1.5">
+              <Link2 className="w-3.5 h-3.5" style={{ color: "oklch(0.7 0.18 170)" }} /> Related Knowledge
+            </p>
+            <div className="space-y-1">
+              {a.relatedKnowledge.map((r, i) => (
+                <Link key={i} href={r.route} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition-all duration-200"
+                  style={{ background: "oklch(0.09 0.018 260)", border: "1px solid oklch(0.18 0.02 260)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.18 0.02 260)"; }}>
+                  <span className="text-[11px] truncate" style={{ color: "oklch(0.6 0.02 240)" }}>{r.label}</span>
+                  <span className="text-[9px] shrink-0" style={{ color: "oklch(0.4 0.02 240)" }}>{r.kind} · {r.reason}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Impacted systems */}
+        {a.impactedSystems.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2 flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5" style={{ color: "oklch(0.7 0.18 170)" }} /> Impacted Systems
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {a.impactedSystems.map((s, i) => (
+                <Link key={i} href="/dashboard/risk"
+                  className="text-[10px] px-2 py-1 rounded-lg"
+                  style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.6 0.02 240)" }}>
+                  {s}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Learning modules */}
+        {a.learningModules.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2">Your Learning Path</p>
+            <div className="space-y-2">
+              {a.learningModules.map((mod) => (
+                <Link key={mod.id} href={mod.route} className="block rounded-lg px-2.5 py-2 transition-all duration-200"
+                  style={{ background: "oklch(0.09 0.018 260)", border: "1px solid oklch(0.18 0.02 260)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.18 0.02 260)"; }}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-medium text-white">{mod.title}</span>
+                    <span className="text-[9px]" style={{ color: "oklch(0.4 0.02 240)" }}>{mod.progress}%</span>
+                  </div>
+                  <div className="h-1 rounded-full overflow-hidden mb-1" style={{ background: "oklch(0.18 0.02 260)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${mod.progress}%`, background: "linear-gradient(90deg, oklch(0.7 0.18 170), oklch(0.65 0.15 150))" }} />
+                  </div>
+                  <p className="text-[9px]" style={{ color: "oklch(0.45 0.02 240)" }}>{mod.objective}</p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Follow-ups */}
+        {a.followUps.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2">Follow up</p>
+            <div className="flex flex-wrap gap-1.5">
+              {a.followUps.map((f, i) => (
+                <button key={i} onClick={() => onFollowUp(f)}
+                  className="text-[10px] px-2.5 py-1.5 rounded-lg transition-all duration-200"
+                  style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.6 0.02 240)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; e.currentTarget.style.color = "oklch(0.7 0.18 170)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.28 0.02 260)"; e.currentTarget.style.color = "oklch(0.6 0.02 240)"; }}>
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Navigation */}
+        {a.navigation.length > 0 && (
+          <div className="rounded-2xl px-4 py-3" style={{ background: "oklch(0.11 0.02 260)", border: "1px solid oklch(0.22 0.02 260)" }}>
+            <p className="text-[11px] font-semibold text-white mb-2">Explore</p>
+            <div className="flex flex-wrap gap-1.5">
+              {a.navigation.map((n, i) => (
+                <Link key={i} href={n.route}
+                  className="text-[10px] px-2.5 py-1.5 rounded-lg transition-all duration-200"
+                  style={{ background: "oklch(0.16 0.03 260)", border: "1px solid oklch(0.28 0.02 260)", color: "oklch(0.6 0.02 240)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "oklch(0.7 0.18 170 / 0.4)"; e.currentTarget.style.color = "oklch(0.7 0.18 170)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "oklch(0.28 0.02 260)"; e.currentTarget.style.color = "oklch(0.6 0.02 240)"; }}>
+                  {n.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

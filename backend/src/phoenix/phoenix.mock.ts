@@ -3,6 +3,8 @@ import {
     BrainGraphView,
     BrainNode,
     DecisionTimelineEvent,
+    DocumentContent,
+    DocumentContentSection,
     DocumentationItem,
     ExecutiveBrief,
     ExitSimulationProfile,
@@ -260,6 +262,190 @@ export function getDocumentationEngineState(): DocumentationItem[] {
     ];
 }
 
+export function getDocumentContent(name: string): DocumentContent | null {
+    const doc = getDocumentationEngineState().find((d) => d.name === name);
+    if (!doc) return null;
+    const now = new Date().toISOString();
+    const builders: Record<string, (n: string) => DocumentContentSection[]> = {
+        'API Docs': (n) => apiDocSections(n),
+        'ADR': (n) => adrSections(n),
+        'PR Summary': (n) => prSections(n),
+        'Release Notes': (n) => releaseSections(n),
+        'Technical Doc': (n) => techSections(n),
+        'Onboarding': (n) => onboardingSections(n),
+    };
+    const sections = (builders[doc.type] ?? apiDocSections)(name);
+    return { name, type: doc.type, generatedAt: now, sections };
+}
+
+function apiDocSections(name: string): DocumentContentSection[] {
+    const slug = name.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
+    return [
+        { heading: 'Overview', body: `This reference documents the public contract for ${name}. All endpoints are versioned under /v1 and require a bearer token issued by the auth service. Requests without a valid token receive HTTP 401.` },
+        { heading: 'Base URL', code: `https://api.nexus.ai/${slug}` },
+        {
+            heading: 'Authentication', body: 'Every request must include an Authorization header with a valid access token.',
+            code: 'Authorization: Bearer <access_token>',
+            bullets: ['Tokens expire after 60 minutes and must be refreshed via POST /auth/refresh', 'Scopes are granted per role (read, write, admin)', 'Refresh tokens are single-use and rotated on every call'],
+        },
+        {
+            heading: 'Endpoints', body: 'The following endpoints are available for this service.',
+            table: {
+                headers: ['Method', 'Path', 'Description', 'Auth'],
+                rows: [
+                    ['GET', `/v1/${slug}/health`, 'Liveness probe', 'none'],
+                    ['GET', `/v1/${slug}/entities`, 'List entities (paginated)', 'read'],
+                    ['GET', `/v1/${slug}/entities/:id`, 'Fetch a single entity', 'read'],
+                    ['POST', `/v1/${slug}/entities`, 'Create an entity', 'write'],
+                    ['PUT', `/v1/${slug}/entities/:id`, 'Update an entity', 'write'],
+                    ['DELETE', `/v1/${slug}/entities/:id`, 'Delete an entity', 'admin'],
+                ],
+            },
+        },
+        {
+            heading: 'List entities', body: 'Returns a paginated collection. Supports cursor-based pagination and server-side filtering.',
+            code: `GET /v1/${slug}/entities?limit=50&cursor=abc123\n\n{
+  "data": [],
+  "nextCursor": "def456",
+  "total": 1284
+}`,
+        },
+        {
+            heading: 'Error handling', body: 'Errors use a consistent envelope with an HTTP status code and a machine-readable code.',
+            code: '{ "error": { "code": "RESOURCE_NOT_FOUND", "message": "Entity 123 was not found", "traceId": "5f3a..." } }',
+            table: {
+                headers: ['Status', 'Code', 'Meaning'],
+                rows: [
+                    ['400', 'VALIDATION_ERROR', 'Request body failed schema validation'],
+                    ['401', 'UNAUTHORIZED', 'Missing or invalid token'],
+                    ['403', 'FORBIDDEN', 'Token valid but scope insufficient'],
+                    ['404', 'RESOURCE_NOT_FOUND', 'Requested entity does not exist'],
+                    ['429', 'RATE_LIMITED', 'Too many requests'],
+                ],
+            },
+        },
+    ];
+}
+
+function adrSections(name: string): DocumentContentSection[] {
+    return [
+        { heading: 'Context', body: `This ADR records the decision that shaped the design behind ${name}. The proposal was reviewed by the architecture guild, payments, and platform teams over two review cycles.` },
+        { heading: 'Decision', body: 'We will adopt the proposed approach as the canonical design, keeping a strict compatibility boundary at the public interface while allowing internal iteration. This keeps the blast radius of future refactors contained to a single service boundary.' },
+        {
+            heading: 'Alternatives considered', body: 'Three alternatives were evaluated before the final decision was reached.',
+            table: {
+                headers: ['Option', 'Result', 'Reason'],
+                rows: [
+                    ['Keep current design', 'Rejected', 'Does not scale past current growth ceiling'],
+                    ['Adopt proposal as-is', 'Accepted', 'Best fit for reliability and team velocity'],
+                    ['Replatform to external vendor', 'Rejected', 'Cost and data-residency constraints'],
+                ],
+            },
+        },
+        {
+            heading: 'Consequences', body: 'Adopting this decision introduces both benefits and obligations that the team should track.',
+            bullets: ['Reduces operational complexity and incident count', 'Requires a 2-week migration window', 'Adds new monitoring instrumentation responsibilities', 'Update runbooks and on-call playbooks before rollout'],
+        },
+    ];
+}
+
+function prSections(name: string): DocumentContentSection[] {
+    return [
+        { heading: 'Summary', body: `Automated summary of ${name}. The change touches authentication, configuration, and test infrastructure, and is approved for merge after CI passes.` },
+        {
+            heading: 'Changes', body: 'Files changed in this pull request.',
+            table: {
+                headers: ['File', 'Change'],
+                rows: [
+                    ['src/auth/token.service.ts', 'Modified — rotate refresh tokens on reuse'],
+                    ['src/auth/guards/oauth.guard.ts', 'Modified — support PKCE flow'],
+                    ['tests/auth.e2e.ts', 'Added — coverage for refresh rotation'],
+                    ['docs/auth-flow.md', 'Modified — update sequence diagram'],
+                ],
+            },
+        },
+        { heading: 'Testing', body: 'All changes are covered by unit and end-to-end tests.', bullets: ['12 new unit tests added', 'E2E suite passes on staging', 'No regressions in related services'] },
+        { heading: 'Review notes', body: 'Two reviewers approved. One comment on logging verbosity was addressed before final approval.' },
+    ];
+}
+
+function releaseSections(name: string): DocumentContentSection[] {
+    return [
+        { heading: 'What is in this release', body: `${name} ships improvements across authentication, performance, and developer experience.` },
+        {
+            heading: 'Highlights', body: 'Key changes in this release.',
+            bullets: ['Auth service token refresh rotation enabled for all tenants', 'Reduced API p99 latency by 18%', 'New self-serve onboarding flow for new joiners', 'Multiple dependency and security patches'],
+        },
+        {
+            heading: 'Breaking changes', body: 'Actions required before upgrading.',
+            bullets: ['POST /v1/tokens/refresh now returns a new refresh_token — clients must store it', 'Deprecated header X-API-Key removed; use Authorization'],
+        },
+        { heading: 'Rollout plan', body: 'Progressive rollout: 5% on day one, 25% on day two, 100% by end of week, with a kill-switch feature flag available for instant rollback.' },
+    ];
+}
+
+function techSections(name: string): DocumentContentSection[] {
+    const isK8s = name.toLowerCase().includes('k8s') || name.toLowerCase().includes('kubernetes');
+    const isPipeline = name.toLowerCase().includes('pipeline') || name.toLowerCase().includes('data');
+    return [
+        { heading: 'Purpose', body: `${name} documents the operational architecture and standard procedures for the ${isK8s ? 'Kubernetes infrastructure' : isPipeline ? 'data pipeline' : 'platform component'} described here.` },
+        {
+            heading: 'Architecture', body: 'A high-level view of the system and how it connects to the rest of the platform.',
+            bullets: isK8s
+                ? ['Multi-cluster layout with a shared ingress tier', 'Namespace-per-team isolation with RBAC', 'Helm charts versioned alongside application code', 'Pod autoscaling driven by custom metrics']
+                : isPipeline
+                    ? ['Ingest → clean → transform → load stages', 'Debezium CDC feeds from source databases', 'S3 landing zone with Parquet output', 'Orchestration via scheduled DAG runs']
+                    : ['Stateless service behind a load balancer', 'Persistent storage attached to the primary replica', 'Caching layer for read-heavy endpoints', 'Graceful degradation when upstreams are slow'],
+        },
+        {
+            heading: 'Operations', body: 'Standard runbook procedures for operating this component.',
+            code: isK8s
+                ? `# Rolling restart of the auth service
+kubectl rollout restart deployment/auth-service -n platform
+kubectl rollout status deployment/auth-service -n platform`
+                : isPipeline
+                    ? `# Retrigger a failed pipeline run
+curl -X POST /v1/pipelines/run --data '{"pipeline": "nightly-etl"}'`
+                    : `# Restart service via systemd
+sudo systemctl restart phoenix-api
+journalctl -u phoenix-api -f`,
+        },
+        {
+            heading: 'Common issues', body: 'Frequently encountered problems and their resolutions.',
+            table: {
+                headers: ['Issue', 'Symptom', 'Resolution'],
+                rows: isK8s
+                    ? [['CrashLoopBackOff', 'Pod restarts continuously', 'Check logs: kubectl logs -f deploy/name'], ['OOMKilled', 'Container exceeds memory limit', 'Raise resource limits and re-deploy'], ['ImagePullBackOff', 'Cannot pull image', 'Verify registry credentials']]
+                    : isPipeline
+                        ? [['SLA breach', 'Run exceeds target duration', 'Scale workers and check backpressure'], ['Dropped records', 'Count mismatch in S3', 'Replay the partition from the offset'], ['Schema drift', 'Validation failures', 'Run the drift detector and backfill']]
+                        : [['High latency', 'p99 above target', 'Check cache hit ratio and DB indexes'], ['Disk full', 'Writes start failing', 'Rotate logs and add capacity']],
+            },
+        },
+    ];
+}
+
+function onboardingSections(name: string): DocumentContentSection[] {
+    return [
+        { heading: 'Welcome', body: `Welcome to the team! This guide covers everything you need to get productive in your first two weeks at the company, including ${name}.` },
+        {
+            heading: 'Day 1', body: 'Accounts, access, and equipment.',
+            bullets: ['Receive laptop and enroll in MDM', 'Activate Okta account and MFA', 'Join #general, #eng, and team channels', 'Complete security awareness training'],
+        },
+        {
+            heading: 'Week 1', body: 'Get your local environment running.',
+            code: `git clone git@github.com:nexus/platform.git
+cd platform
+npx nx run bootstrap   # installs deps + local DB
+npm run dev`,
+            bullets: ['Shadow a senior engineer on a small task', 'Review the architecture and docs libraries', 'Set up your local feature-flag environment'],
+        },
+        {
+            heading: 'Week 2', body: 'Ship your first change.',
+            bullets: ['Pick an entry-level ticket from the board', 'Open a PR with tests and docs', 'Give your first demo in the weekly showcase'],
+        },
+    ];
+}
+
 export function getArchitectureWorkflows(): ArchitectureWorkflow[] {
     return [
         {
@@ -438,6 +624,12 @@ export function getIntelligenceInsights(): IntelligenceInsights {
             { id: 'a3', name: 'Evidence Agent', role: 'Gathers supporting evidence', status: 'reasoning', confidence: 76, finding: 'Analyzing 8 meeting transcripts and 23 ADRs' },
             { id: 'a4', name: 'Relationship Agent', role: 'Maps knowledge dependencies', status: 'idle', confidence: 0, finding: 'Waiting for evidence synthesis' },
             { id: 'a5', name: 'Synthesis Agent', role: 'Synthesizes final answer', status: 'idle', confidence: 0, finding: 'Waiting for all agents' },
+            { id: 'a6', name: 'Decision Intelligence Agent', role: 'Correlates evidence & reconstructs decision history', status: 'idle', confidence: 0, finding: 'Queued behind evidence synthesis' },
+            { id: 'a7', name: 'Employee Exit Intelligence Agent', role: 'Coordinates departure simulations & resilience planning', status: 'idle', confidence: 0, finding: 'Queued behind dependency mapping' },
+            { id: 'a8', name: 'Risk Intelligence Agent', role: 'Computes organizational knowledge-risk heatmaps', status: 'idle', confidence: 0, finding: 'Queued behind resilience snapshot' },
+            { id: 'a9', name: 'Mentor Agent', role: 'Explains the organizational brain with personalized guidance', status: 'idle', confidence: 0, finding: 'Queued behind agent findings' },
+            { id: 'a10', name: 'Documentation Intelligence Agent', role: 'Coordinates documentation generation, evolution, validation, and versioning', status: 'idle', confidence: 0, finding: 'Queued behind documentation event scope' },
+            { id: 'a11', name: 'Organizational Intelligence Agent', role: 'Orchestrates cross-domain organizational reasoning', status: 'idle', confidence: 0, finding: 'Queued behind fleet findings' },
         ],
         recommendations: [
             'Validate auth ownership across the payments and gateway domains.',
@@ -481,9 +673,15 @@ export function getReasoningSnapshot(query: string) {
         agents: [
             { id: 'a1', name: 'Knowledge Agent', role: 'Searches org knowledge graph', status: 'done', confidence: 94, finding: `Found ${brainNodes.length} linked knowledge nodes across ${brainNodes.filter((node) => node.kind === 'repository').length} repositories` },
             { id: 'a2', name: 'Context Agent', role: 'Builds situational context', status: 'done', confidence: 88, finding: 'Decision made in context of the Q2 2022 performance crisis' },
-            { id: 'a3', name: 'Evidence Agent', role: 'Gathers supporting evidence', status: 'reasoning', confidence: 76, finding: 'Analyzing 8 meeting transcripts and 23 ADRs' },
-            { id: 'a4', name: 'Relationship Agent', role: 'Maps knowledge dependencies', status: 'idle', confidence: 0, finding: 'Waiting for evidence synthesis' },
-            { id: 'a5', name: 'Synthesis Agent', role: 'Synthesizes final answer', status: 'idle', confidence: 0, finding: 'Waiting for all agents' },
+            { id: 'a3', name: 'Evidence Agent', role: 'Gathers supporting evidence', status: 'done', confidence: 76, finding: 'Analyzing 8 meeting transcripts and 23 ADRs' },
+            { id: 'a4', name: 'Relationship Agent', role: 'Maps knowledge dependencies', status: 'done', confidence: 0, finding: 'Waiting for evidence synthesis' },
+            { id: 'a5', name: 'Synthesis Agent', role: 'Synthesizes final answer', status: 'done', confidence: 0, finding: 'Waiting for all agents' },
+            { id: 'a6', name: 'Decision Intelligence Agent', role: 'Correlates evidence & reconstructs decision history', status: 'done', confidence: 90, finding: 'Reconstructed decision lifecycle with traceable evidence' },
+            { id: 'a7', name: 'Employee Exit Intelligence Agent', role: 'Coordinates departure simulations & resilience planning', status: 'done', confidence: 87, finding: 'Simulated exit and projected knowledge loss across owned systems' },
+            { id: 'a8', name: 'Risk Intelligence Agent', role: 'Computes organizational knowledge-risk heatmaps', status: 'done', confidence: 86, finding: 'Scored 13 risk attributes per node and projected 4-week risk trajectories' },
+            { id: 'a9', name: 'Mentor Agent', role: 'Explains the organizational brain with personalized guidance', status: 'done', confidence: 85, finding: 'Detected the mentoring capability, resolved the user persona, and composed an evidence-grounded answer with a learning path' },
+            { id: 'a10', name: 'Documentation Intelligence Agent', role: 'Coordinates documentation generation, evolution, validation, and versioning', status: 'done', confidence: 87, finding: 'Synchronized the documentation ecosystem and published a new versioned document' },
+            { id: 'a11', name: 'Organizational Intelligence Agent', role: 'Orchestrates cross-domain organizational reasoning', status: 'done', confidence: 88, finding: 'Planned the reasoning pipeline, coordinated the fleet, and composed a transparent cross-domain answer' },
         ],
     };
 }

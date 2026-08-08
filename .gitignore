@@ -29,3 +29,8 @@ next-env.d.ts
 # personal files
 *.lnk
 WhatsApp Image*.jpeg
+
+# local database + schema backups
+*.db
+*.db-journal
+*.bak

@@ -2,10 +2,15 @@
 
 import { useState } from "react";
 import { Bell, Search, ChevronDown } from "lucide-react";
+import { getAuthUser } from "@/lib/phoenix/auth";
 
 export function DashboardTopbar({ title, subtitle }: { title: string; subtitle?: string }) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const user = getAuthUser();
+  const initials = user?.name
+    ? user.name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()
+    : "??";
 
   return (
     <header className="flex items-center justify-between h-16 px-6 shrink-0"
@@ -69,11 +74,11 @@ export function DashboardTopbar({ title, subtitle }: { title: string; subtitle?:
             onMouseLeave={e => { if (!showUserMenu) (e.currentTarget).style.borderColor = "#D6EAF8"; }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
               style={{ background: "linear-gradient(90deg, #2196F3, #0D47A1)", color: "#FFFFFF" }}>
-              JD
+              {initials}
             </div>
             <div className="hidden md:block text-left">
-              <div className="text-xs font-medium leading-none" style={{ color: "#211F20" }}>Jane Doe</div>
-              <div className="text-[10px] mt-0.5" style={{ color: "#5F6B7A" }}>Admin</div>
+              <div className="text-xs font-medium leading-none" style={{ color: "#211F20" }}>{user?.name ?? "Guest"}</div>
+              <div className="text-[10px] mt-0.5 capitalize" style={{ color: "#5F6B7A" }}>{user?.role ?? "Guest"}</div>
             </div>
             <ChevronDown className="w-3 h-3 hidden md:block" style={{ color: "#5F6B7A" }} />
           </button>

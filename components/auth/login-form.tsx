@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, ArrowRight, Zap } from "lucide-react";
+import { login } from "@/lib/phoenix/auth";
 
 export function LoginForm() {
   const router = useRouter();
@@ -22,10 +23,14 @@ export function LoginForm() {
     }
     setError("");
     setLoading(true);
-    // Simulate auth delay
-    await new Promise((r) => setTimeout(r, 1200));
-    if (remember) localStorage.setItem("phoenix_auth", "true");
-    router.push("/dashboard");
+    try {
+      await login(email, password);
+      if (remember) localStorage.setItem("phoenix_auth", "true");
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (

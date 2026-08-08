@@ -1,0 +1,120 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { TaskService } from './task.service';
+
+/**
+ * Demo seed for Feature 9. Creates two illustrative tasks:
+ *   1. A COMPLETED cross-feature task that consumed outputs from all eight
+ *      ACE features (checklist complete, sections + evidence mappings present,
+ *      exported report, status complete).
+ *   2. A DELIBERATELY INCOMPLETE task whose required sources are missing, so
+ *      readiness lands on `blocked`/`missing-data` and generation is prevented.
+ * Seeding is idempotent (skips when a task with the same title exists).
+ */
+@Injectable()
+export class TaskSeedService implements OnModuleInit {
+    private readonly logger = new Logger(TaskSeedService.name);
+
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly tasks: TaskService,
+    ) {}
+
+    async onModuleInit(): Promise<void> {
+        await this.seed().catch((err) =>
+            this.logger.warn(`Task seed skipped: ${err instanceof Error ? err.message : String(err)}`),
+        );
+    }
+
+    private async seed(): Promise<void> {
+        const existing = await this.prisma.agentTask.count({
+            where: {
+                OR: [
+                    { title: 'Cross-feature resilience deep-dive (seeded)' },
+                    { title: 'Exit-impact analysis for contractor onboarding (seeded, blocked)' },
+                ],
+            },
+        });
+        if (existing > 0) {
+            this.logger.log('Task demo seed already present, skipping.');
+            return;
+        }
+
+        await this.seedCompletedTask();
+        await this.seedIncompleteTask();
+        this.logger.log('Task demo data seeded.');
+    }
+
+    private async seedCompletedTask(): Promise<void> {
+        const task = await this.tasks.create({
+            title: 'Cross-feature resilience deep-dive (seeded)',
+            description:
+                'End-to-end collaboration chain: the AI Mentor surfaced a retention risk, the Knowledge Risk Heatmap quantified knowledge exposure, Decision Time Machine reconstructed the hiring decision, Autonomous Documentation archived the playbook, and Organizational Intelligence swept supporting signals — coordinated as one agent task by the Task Intelligence Agent.',
+            feature: 'cross-feature',
+            project: 'Project Phoenix',
+            owner: 'Priya Nair',
+            team: 'Platform',
+            responsibleAgent: 'a13',
+            priority: 'high',
+            createdBy: 'seed',
+            notes: 'Demonstrates the shared task layer coordinating eight ACE features without owning their intelligence.',
+        });
+
+        // Complete every required checklist item (source validation already
+        // confirms they exist in the live brain).
+        const detail = await this.tasks.detail(task.id);
+        for (const item of detail.checklist.filter((c) => c.required)) {
+            await this.tasks.toggleChecklistItem(task.id, item.id, true, 'a13');
+        }
+
+        // Generate sections + evidence mappings via the fleet, then mark complete.
+        await this.tasks.generate(task.id, 'a13');
+        await this.tasks.updateStatus(task.id, 'complete', 'a13');
+
+        // Persist one export so the completed report is available.
+        await this.tasks.export(task.id, 'markdown', 'a13');
+
+        this.logger.log(`Seeded completed task ${task.id}`);
+    }
+
+    private async seedIncompleteTask(): Promise<void> {
+        const task = await this.tasks.create({
+            title: 'Exit-impact analysis for contractor onboarding (seeded, blocked)',
+            description:
+                'Assess the knowledge-loss impact of the new contractor onboarding initiative across repositories, decision records, and documentation. Deliberately seeded with a missing upstream dependency so readiness resolves to failed and generation is blocked rather than hallucinated.',
+            feature: 'exit-sim',
+            project: 'Project Phoenix',
+            owner: 'Open',
+            team: 'Onboarding',
+            responsibleAgent: 'a7',
+            priority: 'medium',
+            createdBy: 'seed',
+            notes: 'Demonstrates missing/blocked dependency detection and the generation guardrail.',
+        });
+
+        const detail = await this.tasks.detail(task.id);
+        // Complete only a subset of checklist items — leave required ones open.
+        const optional = detail.checklist.filter((c) => !c.required).slice(0, 2);
+        for (const item of optional) {
+            await this.tasks.toggleChecklistItem(task.id, item.id, true, 'a13');
+        }
+
+        // Declare an explicit dependency on a dependent task that does not exist.
+        // resolveDependencyStatus returns failed → readiness failed → pre-generation
+        // validation blocks generation instead of fabricating content.
+        await this.tasks.addDependency(task.id, {
+            dependencyType: 'task',
+            sourceType: 'task',
+            sourceId: 'task-not-created-yet',
+            sourceLabel: 'Workforce onboarding exit-plan task',
+        }, 'a13');
+
+        // Attempt generation — must be blocked by pre-generation validation.
+        const attempt = await this.tasks.generate(task.id, 'a7');
+        if (attempt.preValidation.blocked) {
+            this.logger.log(`Seeded blocked task ${task.id} (generation blocked: ${attempt.preValidation.failures.join('; ')})`);
+        } else {
+            await this.tasks.updateStatus(task.id, 'blocked', 'a13');
+        }
+    }
+}
