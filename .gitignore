@@ -36,3 +36,5 @@ WhatsApp Image*.jpeg
 *.bak
 
 .vercel
+
+pnpm-lock.yaml
