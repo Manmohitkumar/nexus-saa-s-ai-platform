@@ -1,0 +1,8 @@
+node_modules
+dist
+phoenix.db
+*.db
+*.db-journal
+schema_ddl.sql
+.temp
+.tmp
