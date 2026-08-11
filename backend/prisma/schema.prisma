@@ -4,8 +4,9 @@
 // (graph, agents, decisions, risk, docs, sim) reads/writes these models.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {

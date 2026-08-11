@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build && node -e \"require('fs').copyFileSync('generated/prisma/package.json','dist/generated/prisma/package.json')\"",
-    "build:vercel": "prisma generate && nest build && node -e \"require('fs').copyFileSync('generated/prisma/package.json','dist/generated/prisma/package.json')\"",
+    "build:vercel": "prisma generate && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -81,9 +81,11 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "transformIgnorePatterns": [
-      "/node_modules/",
-      "/generated/prisma/"
+      "/node_modules/"
     ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
